@@ -23,9 +23,7 @@ app.use(
 );
 
 function checkSecret(req, res, next) {
-  if (!API_SECRET) {
-    return next();
-  }
+  if (!API_SECRET) return next();
 
   const secret = req.headers["x-api-secret"];
 
@@ -45,9 +43,6 @@ function cleanAddress(value) {
     .replace(/\s+/g, " ");
 }
 
-/**
- * 비교용 텍스트 정규화
- */
 function normalizeCompareText(value) {
   return String(value || "")
     .replace(/\s+/g, "")
@@ -196,9 +191,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  /**
-   * 동/호 패턴이지만 동번호 또는 호수 숫자가 과도하게 긴 경우 선검사
-   */
   const dongHoMatch = clean.match(/^([0-9A-Za-z가-힣]+)동\s*([0-9A-Za-z]+)호$/);
 
   if (dongHoMatch) {
@@ -242,9 +234,6 @@ function classifyDetailAddress(detailAddress) {
     }
   }
 
-  /**
-   * 층/호 패턴 호수 자릿수 검사
-   */
   const floorHoMatch = clean.match(/^(\d+)층\s*([0-9A-Za-z]+)호$/);
 
   if (floorHoMatch) {
@@ -274,9 +263,6 @@ function classifyDetailAddress(detailAddress) {
     }
   }
 
-  /**
-   * 호수만 있는 경우 자릿수 검사
-   */
   const hoOnlyMatch = clean.match(/^([0-9A-Za-z]+)호$/);
 
   if (hoOnlyMatch) {
@@ -306,7 +292,6 @@ function classifyDetailAddress(detailAddress) {
     }
   }
 
-  // 101동 1203호, B동 201호
   if (/^[0-9A-Za-z가-힣]+동\s*[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -318,7 +303,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 3층 302호
   if (/^\d+층\s*[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -330,7 +314,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 지하 1층 B101호
   if (/^지하\s*\d+층\s*[A-Za-z]?\d+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -342,7 +325,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 302호, B101호
   if (/^[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -354,7 +336,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 101동만 있음
   if (/^[0-9A-Za-z가-힣]+동$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -366,7 +347,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 3층만 있음
   if (/^\d+층$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -378,7 +358,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 지하 1층만 있음
   if (/^지하\s*\d+층$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -390,7 +369,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 숫자가 하나도 없음
   if (!/\d/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -418,7 +396,6 @@ function classifyDetailAddress(detailAddress) {
 function extractDetailSearchInfo(cleanDetailAddress) {
   const clean = String(cleanDetailAddress || "").trim();
 
-  // 101동 1203호
   const dongHo = clean.match(/^([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호)$/);
   if (dongHo) {
     return {
@@ -430,7 +407,6 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     };
   }
 
-  // 11층 10호
   const floorHo = clean.match(/^(\d+층)\s*([0-9A-Za-z]+호)$/);
   if (floorHo) {
     return {
@@ -442,7 +418,6 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     };
   }
 
-  // 지하 1층 B101호
   const basementFloorHo = clean.match(/^(지하\s*\d+층)\s*([A-Za-z]?\d+호)$/);
   if (basementFloorHo) {
     return {
@@ -454,7 +429,6 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     };
   }
 
-  // 302호, B101호
   const hoOnly = clean.match(/^([0-9A-Za-z]+호)$/);
   if (hoOnly) {
     return {
@@ -569,9 +543,6 @@ async function searchJusoDetail(jusoResult, detailResult) {
 
 /**
  * Juso 상세주소 API 결과 파싱
- *
- * 상세주소 API 응답 필드는 실제 결과 케이스에 따라 다를 수 있으므로
- * Object.values(row)를 넓게 모아서 비교합니다.
  */
 function parseJusoDetailResult(data, detail) {
   const results = data?.results || {};
@@ -843,6 +814,133 @@ app.get("/health", (req, res) => {
     ok: true,
     service: "address-validator-api"
   });
+});
+
+/**
+ * Juso 상세주소 후보 리스트 확인용 디버그 API
+ */
+app.post("/debug-juso-detail-list", checkSecret, async (req, res) => {
+  try {
+    if (!JUSO_API_KEY) {
+      return res.status(500).json({
+        ok: false,
+        message: "JUSO_API_KEY가 설정되지 않았습니다."
+      });
+    }
+
+    if (!JUSO_DETAIL_API_KEY) {
+      return res.status(500).json({
+        ok: false,
+        message: "JUSO_DETAIL_API_KEY가 설정되지 않았습니다."
+      });
+    }
+
+    const baseAddress = cleanAddress(req.body?.baseAddress);
+    const detailAddress = String(req.body?.detailAddress || "").trim();
+
+    if (!baseAddress) {
+      return res.status(400).json({
+        ok: false,
+        message: "baseAddress가 필요합니다."
+      });
+    }
+
+    const jusoData = await searchJuso(baseAddress);
+    const jusoResult = parseJusoResult(baseAddress, "DEBUG", jusoData);
+
+    if (jusoResult.status !== "NORMAL") {
+      return res.json({
+        ok: true,
+        baseAddress,
+        detailAddress,
+        jusoResult,
+        message: "기본주소가 NORMAL 상태가 아니어서 상세주소 후보 조회를 중단했습니다."
+      });
+    }
+
+    const detailResult = classifyDetailAddress(detailAddress || "1호");
+
+    const url = new URL("https://business.juso.go.kr/addrlink/addrDetailApi.do");
+
+    url.searchParams.set("confmKey", JUSO_DETAIL_API_KEY);
+    url.searchParams.set("admCd", jusoResult.admCd);
+    url.searchParams.set("rnMgtSn", jusoResult.rnMgtSn);
+    url.searchParams.set("udrtYn", jusoResult.udrtYn);
+    url.searchParams.set("buldMnnm", jusoResult.buldMnnm);
+    url.searchParams.set("buldSlno", jusoResult.buldSlno || "0");
+    url.searchParams.set("searchType", "floorho");
+    url.searchParams.set("resultType", "json");
+
+    const response = await fetch(url.toString(), {
+      method: "GET"
+    });
+
+    if (!response.ok) {
+      throw new Error(`Juso Detail API HTTP Error: ${response.status}`);
+    }
+
+    const rawDetailData = await response.json();
+
+    const results = rawDetailData?.results || {};
+    const common = results?.common || {};
+
+    const possibleLists = [
+      results?.juso,
+      results?.addrDetail,
+      results?.detail,
+      results?.floors,
+      results?.floorho,
+      results?.detailList
+    ];
+
+    const detailList = possibleLists.find((v) => Array.isArray(v)) || [];
+
+    const candidates = detailList.map((row) => {
+      const values = Object.values(row)
+        .filter((v) => typeof v === "string" || typeof v === "number")
+        .map((v) => String(v).trim())
+        .filter(Boolean);
+
+      return {
+        raw: row,
+        text: values.join(" ")
+      };
+    });
+
+    const target = normalizeCompareText(detailAddress);
+
+    const matchedCandidates = candidates.filter((candidate) => {
+      const candidateText = normalizeCompareText(candidate.text);
+      return target && candidateText.includes(target);
+    });
+
+    res.json({
+      ok: true,
+      baseAddress,
+      detailAddress,
+      jusoResult,
+      detailResult,
+      detailApiRequestParams: {
+        admCd: jusoResult.admCd,
+        rnMgtSn: jusoResult.rnMgtSn,
+        udrtYn: jusoResult.udrtYn,
+        buldMnnm: jusoResult.buldMnnm,
+        buldSlno: jusoResult.buldSlno || "0",
+        searchType: "floorho"
+      },
+      detailApiCommon: common,
+      candidateCount: candidates.length,
+      matchedCount: matchedCandidates.length,
+      matchedCandidates,
+      candidates,
+      rawDetailData
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      message: error.message
+    });
+  }
 });
 
 /**
