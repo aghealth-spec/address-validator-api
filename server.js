@@ -8,6 +8,7 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 const JUSO_API_KEY = process.env.JUSO_API_KEY;
+const JUSO_DETAIL_API_KEY = process.env.JUSO_DETAIL_API_KEY;
 const API_SECRET = process.env.API_SECRET;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "*";
 
@@ -42,6 +43,17 @@ function cleanAddress(value) {
   return String(value || "")
     .trim()
     .replace(/\s+/g, " ");
+}
+
+/**
+ * 비교용 텍스트 정규화
+ */
+function normalizeCompareText(value) {
+  return String(value || "")
+    .replace(/\s+/g, "")
+    .replace(/-/g, "")
+    .replace(/[()]/g, "")
+    .toLowerCase();
 }
 
 /**
@@ -186,10 +198,6 @@ function classifyDetailAddress(detailAddress) {
 
   /**
    * 동/호 패턴이지만 동번호 또는 호수 숫자가 과도하게 긴 경우 선검사
-   * 예:
-   * 101동1203호       → 정상 가능
-   * 101동15112호      → 확인필요
-   * 101동1511203호    → 의심
    */
   const dongHoMatch = clean.match(/^([0-9A-Za-z가-힣]+)동\s*([0-9A-Za-z]+)호$/);
 
@@ -235,10 +243,7 @@ function classifyDetailAddress(detailAddress) {
   }
 
   /**
-   * 층/호 패턴도 호수 자릿수 검사
-   * 예:
-   * 3층302호       → 정상 가능
-   * 3층1511203호  → 의심
+   * 층/호 패턴 호수 자릿수 검사
    */
   const floorHoMatch = clean.match(/^(\d+)층\s*([0-9A-Za-z]+)호$/);
 
@@ -270,10 +275,7 @@ function classifyDetailAddress(detailAddress) {
   }
 
   /**
-   * 호수만 있는 경우도 자릿수 검사
-   * 예:
-   * 302호       → 정상 가능
-   * 1511203호  → 의심
+   * 호수만 있는 경우 자릿수 검사
    */
   const hoOnlyMatch = clean.match(/^([0-9A-Za-z]+)호$/);
 
@@ -411,7 +413,70 @@ function classifyDetailAddress(detailAddress) {
 }
 
 /**
- * Juso API 호출
+ * 상세주소 API 검색정보 추출
+ */
+function extractDetailSearchInfo(cleanDetailAddress) {
+  const clean = String(cleanDetailAddress || "").trim();
+
+  // 101동 1203호
+  const dongHo = clean.match(/^([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호)$/);
+  if (dongHo) {
+    return {
+      searchType: "floorho",
+      dongNm: dongHo[1],
+      targetFloor: "",
+      targetHo: dongHo[2],
+      targetDetail: clean
+    };
+  }
+
+  // 11층 10호
+  const floorHo = clean.match(/^(\d+층)\s*([0-9A-Za-z]+호)$/);
+  if (floorHo) {
+    return {
+      searchType: "floorho",
+      dongNm: "",
+      targetFloor: floorHo[1],
+      targetHo: floorHo[2],
+      targetDetail: clean
+    };
+  }
+
+  // 지하 1층 B101호
+  const basementFloorHo = clean.match(/^(지하\s*\d+층)\s*([A-Za-z]?\d+호)$/);
+  if (basementFloorHo) {
+    return {
+      searchType: "floorho",
+      dongNm: "",
+      targetFloor: basementFloorHo[1],
+      targetHo: basementFloorHo[2],
+      targetDetail: clean
+    };
+  }
+
+  // 302호, B101호
+  const hoOnly = clean.match(/^([0-9A-Za-z]+호)$/);
+  if (hoOnly) {
+    return {
+      searchType: "floorho",
+      dongNm: "",
+      targetFloor: "",
+      targetHo: hoOnly[1],
+      targetDetail: clean
+    };
+  }
+
+  return {
+    searchType: "",
+    dongNm: "",
+    targetFloor: "",
+    targetHo: "",
+    targetDetail: clean
+  };
+}
+
+/**
+ * Juso 기본주소 API 호출
  */
 async function searchJuso(keyword) {
   const url = new URL("https://business.juso.go.kr/addrlink/addrLinkApi.do");
@@ -434,7 +499,164 @@ async function searchJuso(keyword) {
 }
 
 /**
- * Juso 결과 파싱
+ * Juso 상세주소 API 호출
+ */
+async function searchJusoDetail(jusoResult, detailResult) {
+  if (!JUSO_DETAIL_API_KEY) {
+    return {
+      jusoDetailChecked: false,
+      jusoDetailMatch: null,
+      jusoDetailStatus: "DETAIL_API_KEY_MISSING",
+      jusoDetailReason: "JUSO_DETAIL_API_KEY가 설정되지 않았습니다.",
+      jusoDetailCandidates: []
+    };
+  }
+
+  if (
+    !jusoResult.admCd ||
+    !jusoResult.rnMgtSn ||
+    jusoResult.udrtYn === "" ||
+    !jusoResult.buldMnnm
+  ) {
+    return {
+      jusoDetailChecked: false,
+      jusoDetailMatch: null,
+      jusoDetailStatus: "DETAIL_REQUIRED_PARAMS_MISSING",
+      jusoDetailReason: "상세주소 API 호출에 필요한 기본주소 파라미터가 부족합니다.",
+      jusoDetailCandidates: []
+    };
+  }
+
+  const detail = extractDetailSearchInfo(detailResult.detailAddressClean);
+
+  if (!detail.searchType) {
+    return {
+      jusoDetailChecked: false,
+      jusoDetailMatch: null,
+      jusoDetailStatus: "DETAIL_PATTERN_NOT_SUPPORTED",
+      jusoDetailReason: "Juso 상세주소 API 대조 대상 패턴이 아닙니다.",
+      jusoDetailCandidates: []
+    };
+  }
+
+  const url = new URL("https://business.juso.go.kr/addrlink/addrDetailApi.do");
+
+  url.searchParams.set("confmKey", JUSO_DETAIL_API_KEY);
+  url.searchParams.set("admCd", jusoResult.admCd);
+  url.searchParams.set("rnMgtSn", jusoResult.rnMgtSn);
+  url.searchParams.set("udrtYn", jusoResult.udrtYn);
+  url.searchParams.set("buldMnnm", jusoResult.buldMnnm);
+  url.searchParams.set("buldSlno", jusoResult.buldSlno || "0");
+  url.searchParams.set("searchType", detail.searchType);
+  url.searchParams.set("resultType", "json");
+
+  if (detail.dongNm) {
+    url.searchParams.set("dongNm", detail.dongNm);
+  }
+
+  const response = await fetch(url.toString(), {
+    method: "GET"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Juso Detail API HTTP Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  return parseJusoDetailResult(data, detail);
+}
+
+/**
+ * Juso 상세주소 API 결과 파싱
+ *
+ * 상세주소 API 응답 필드는 실제 결과 케이스에 따라 다를 수 있으므로
+ * Object.values(row)를 넓게 모아서 비교합니다.
+ */
+function parseJusoDetailResult(data, detail) {
+  const results = data?.results || {};
+  const common = results?.common || {};
+
+  const possibleLists = [
+    results?.juso,
+    results?.addrDetail,
+    results?.detail,
+    results?.floors,
+    results?.floorho,
+    results?.detailList
+  ];
+
+  const detailList = possibleLists.find((v) => Array.isArray(v)) || [];
+
+  const errorCode = common.errorCode || "";
+  const errorMessage = common.errorMessage || "";
+  const totalCount = Number(common.totalCount || detailList.length || 0);
+
+  if (errorCode && errorCode !== "0") {
+    return {
+      jusoDetailChecked: true,
+      jusoDetailMatch: false,
+      jusoDetailStatus: "DETAIL_API_ERROR",
+      jusoDetailReason: errorMessage || "상세주소 API 오류",
+      jusoDetailCandidates: []
+    };
+  }
+
+  const candidates = detailList.map((row) => {
+    const values = Object.values(row)
+      .filter((v) => typeof v === "string" || typeof v === "number")
+      .map((v) => String(v).trim())
+      .filter(Boolean);
+
+    return {
+      raw: row,
+      text: values.join(" ")
+    };
+  });
+
+  const targetDetail = normalizeCompareText(detail.targetDetail);
+  const targetFloor = normalizeCompareText(detail.targetFloor);
+  const targetHo = normalizeCompareText(detail.targetHo);
+  const targetDong = normalizeCompareText(detail.dongNm);
+
+  const matched = candidates.some((candidate) => {
+    const candidateText = normalizeCompareText(candidate.text);
+
+    const fullMatch =
+      targetDetail &&
+      (candidateText.includes(targetDetail) || targetDetail.includes(candidateText));
+
+    const hoMatch = targetHo && candidateText.includes(targetHo);
+    const floorMatch = targetFloor ? candidateText.includes(targetFloor) : true;
+    const dongMatch = targetDong ? candidateText.includes(targetDong) : true;
+
+    return fullMatch || (hoMatch && floorMatch && dongMatch);
+  });
+
+  if (matched) {
+    return {
+      jusoDetailChecked: true,
+      jusoDetailMatch: true,
+      jusoDetailStatus: "DETAIL_MATCHED",
+      jusoDetailReason: "Juso 상세주소 API 후보에서 입력 상세주소가 확인되었습니다.",
+      jusoDetailCandidates: candidates.slice(0, 20)
+    };
+  }
+
+  return {
+    jusoDetailChecked: true,
+    jusoDetailMatch: false,
+    jusoDetailStatus: totalCount === 0 ? "DETAIL_EMPTY" : "DETAIL_NOT_FOUND",
+    jusoDetailReason:
+      totalCount === 0
+        ? "Juso 상세주소 API 후보가 없습니다."
+        : "Juso 상세주소 API 후보에서 입력 상세주소를 찾지 못했습니다.",
+    jusoDetailCandidates: candidates.slice(0, 20)
+  };
+}
+
+/**
+ * Juso 기본주소 결과 파싱
  */
 function parseJusoResult(inputAddress, orderNo, data) {
   const common = data?.results?.common || {};
@@ -456,6 +678,9 @@ function parseJusoResult(inputAddress, orderNo, data) {
       zipNo: "",
       admCd: "",
       rnMgtSn: "",
+      udrtYn: "",
+      buldMnnm: "",
+      buldSlno: "",
       bdMgtSn: "",
       siNm: "",
       sggNm: "",
@@ -477,6 +702,9 @@ function parseJusoResult(inputAddress, orderNo, data) {
       zipNo: "",
       admCd: "",
       rnMgtSn: "",
+      udrtYn: "",
+      buldMnnm: "",
+      buldSlno: "",
       bdMgtSn: "",
       siNm: "",
       sggNm: "",
@@ -499,6 +727,9 @@ function parseJusoResult(inputAddress, orderNo, data) {
     zipNo: first.zipNo || "",
     admCd: first.admCd || "",
     rnMgtSn: first.rnMgtSn || "",
+    udrtYn: first.udrtYn || "",
+    buldMnnm: first.buldMnnm || "",
+    buldSlno: first.buldSlno || "",
     bdMgtSn: first.bdMgtSn || "",
     siNm: first.siNm || "",
     sggNm: first.sggNm || "",
@@ -509,7 +740,7 @@ function parseJusoResult(inputAddress, orderNo, data) {
 }
 
 /**
- * 최종 상태 계산
+ * 기본 최종 상태 계산
  */
 function buildFinalResult(jusoResult, detailResult) {
   const jusoRiskScore =
@@ -547,6 +778,54 @@ function buildFinalResult(jusoResult, detailResult) {
     ...jusoResult,
     ...detailResult,
     finalRiskScore,
+    finalStatus
+  };
+}
+
+/**
+ * 상세주소 API 대조 결과까지 포함한 최종 상태 계산
+ */
+function buildFinalResultWithDetailApi(jusoResult, detailResult, detailApiResult) {
+  const base = buildFinalResult(jusoResult, detailResult);
+
+  let extraRisk = 0;
+  let finalStatus = base.finalStatus;
+  let detailStatus = detailResult.detailStatus;
+  let detailRiskScore = detailResult.detailRiskScore;
+  let detailRiskReason = detailResult.detailRiskReason;
+
+  if (
+    detailApiResult.jusoDetailChecked === true &&
+    detailApiResult.jusoDetailMatch === false &&
+    ["DONG_HO", "FLOOR_HO", "HO_ONLY", "BASEMENT_FLOOR_HO"].includes(
+      detailResult.detailPattern
+    )
+  ) {
+    extraRisk = 40;
+
+    if (base.finalStatus === "NORMAL") {
+      finalStatus = "CHECK_REQUIRED";
+    }
+
+    if (detailResult.detailStatus === "NORMAL") {
+      detailStatus = "CHECK_REQUIRED";
+      detailRiskScore = detailResult.detailRiskScore + extraRisk;
+      detailRiskReason =
+        "형식은 정상이나 Juso 상세주소 API에서 해당 상세주소가 확인되지 않았습니다.";
+    }
+  }
+
+  if (detailApiResult.jusoDetailMatch === true && base.finalStatus === "NORMAL") {
+    finalStatus = "NORMAL";
+  }
+
+  return {
+    ...base,
+    detailStatus,
+    detailRiskScore,
+    detailRiskReason,
+    ...detailApiResult,
+    finalRiskScore: base.finalRiskScore + extraRisk,
     finalStatus
   };
 }
@@ -613,6 +892,9 @@ app.post("/validate-addresses", checkSecret, async (req, res) => {
           zipNo: "",
           admCd: "",
           rnMgtSn: "",
+          udrtYn: "",
+          buldMnnm: "",
+          buldSlno: "",
           bdMgtSn: "",
           siNm: "",
           sggNm: "",
@@ -624,6 +906,11 @@ app.post("/validate-addresses", checkSecret, async (req, res) => {
         results.push({
           ...jusoResult,
           ...detailResult,
+          jusoDetailChecked: false,
+          jusoDetailMatch: null,
+          jusoDetailStatus: "NOT_CHECKED",
+          jusoDetailReason: "기본주소가 없어 상세주소 API 대조를 수행하지 않았습니다.",
+          jusoDetailCandidates: [],
           finalRiskScore: 100 + detailResult.detailRiskScore,
           finalStatus: "BASE_ADDR_ERROR"
         });
@@ -634,7 +921,39 @@ app.post("/validate-addresses", checkSecret, async (req, res) => {
       try {
         const data = await searchJuso(inputAddress);
         const jusoResult = parseJusoResult(inputAddress, orderNo, data);
-        const finalResult = buildFinalResult(jusoResult, detailResult);
+
+        let detailApiResult = {
+          jusoDetailChecked: false,
+          jusoDetailMatch: null,
+          jusoDetailStatus: "NOT_CHECKED",
+          jusoDetailReason: "상세주소 API 대조를 수행하지 않았습니다.",
+          jusoDetailCandidates: []
+        };
+
+        if (
+          jusoResult.status === "NORMAL" &&
+          ["DONG_HO", "FLOOR_HO", "HO_ONLY", "BASEMENT_FLOOR_HO"].includes(
+            detailResult.detailPattern
+          )
+        ) {
+          try {
+            detailApiResult = await searchJusoDetail(jusoResult, detailResult);
+          } catch (detailError) {
+            detailApiResult = {
+              jusoDetailChecked: true,
+              jusoDetailMatch: false,
+              jusoDetailStatus: "DETAIL_REQUEST_ERROR",
+              jusoDetailReason: detailError.message,
+              jusoDetailCandidates: []
+            };
+          }
+        }
+
+        const finalResult = buildFinalResultWithDetailApi(
+          jusoResult,
+          detailResult,
+          detailApiResult
+        );
 
         results.push(finalResult);
       } catch (error) {
@@ -649,6 +968,9 @@ app.post("/validate-addresses", checkSecret, async (req, res) => {
           zipNo: "",
           admCd: "",
           rnMgtSn: "",
+          udrtYn: "",
+          buldMnnm: "",
+          buldSlno: "",
           bdMgtSn: "",
           siNm: "",
           sggNm: "",
@@ -660,6 +982,11 @@ app.post("/validate-addresses", checkSecret, async (req, res) => {
         results.push({
           ...jusoResult,
           ...detailResult,
+          jusoDetailChecked: false,
+          jusoDetailMatch: null,
+          jusoDetailStatus: "NOT_CHECKED",
+          jusoDetailReason: "Juso 기본주소 요청 오류로 상세주소 API 대조를 수행하지 않았습니다.",
+          jusoDetailCandidates: [],
           finalRiskScore: 100 + detailResult.detailRiskScore,
           finalStatus: "JUSO_API_ERROR"
         });
