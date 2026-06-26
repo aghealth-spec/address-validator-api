@@ -768,6 +768,7 @@ function buildFinalResultWithDetailApi(jusoResult, detailResult, detailApiResult
   if (
     detailApiResult.jusoDetailChecked === true &&
     detailApiResult.jusoDetailMatch === false &&
+    detailApiResult.jusoDetailStatus !== "DETAIL_EMPTY" &&
     ["DONG_HO", "FLOOR_HO", "HO_ONLY", "BASEMENT_FLOOR_HO"].includes(
       detailResult.detailPattern
     )
