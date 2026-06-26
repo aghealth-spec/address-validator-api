@@ -92,7 +92,6 @@ function normalizeDetailAddress(value) {
   // "지하 1층 B101" → "지하 1층 B101호"
   clean = clean.replace(/(지하\s*\d+층)\s*([A-Za-z]?\d{1,4})$/g, "$1 $2호");
 
-  // 중복 보정
   clean = clean.replace(/호호/g, "호");
 
   return {
@@ -313,7 +312,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 3층 302호
+  // 11층 10호
   if (/^\d+층\s*[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -361,7 +360,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 3층만 있음
+  // 11층만 있음
   if (/^\d+층$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -385,7 +384,6 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 숫자가 하나도 없음
   if (!/\d/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -409,55 +407,92 @@ function classifyDetailAddress(detailAddress) {
 
 /**
  * 상세주소 API 검색정보 추출
+ * 호수는 검증하지 않고 층만 검증합니다.
  */
 function extractDetailSearchInfo(cleanDetailAddress) {
   const clean = String(cleanDetailAddress || "").trim();
 
-  // 101동 1203호
-  const dongHo = clean.match(/^([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호)$/);
-  if (dongHo) {
-    return {
-      searchType: "floorho",
-      dongNm: dongHo[1],
-      targetFloor: "",
-      targetHo: dongHo[2],
-      targetDetail: clean
-    };
-  }
-
-  // 11층 10호
-  const floorHo = clean.match(/^(\d+층)\s*([0-9A-Za-z]+호)$/);
+  // 11층 10호 → 11층만 검증
+  const floorHo = clean.match(/^(\d+)층\s*([0-9A-Za-z]+호)$/);
   if (floorHo) {
     return {
       searchType: "floorho",
       dongNm: "",
-      targetFloor: floorHo[1],
+      targetFloor: `${floorHo[1]}층`,
+      targetFloorNo: floorHo[1],
       targetHo: floorHo[2],
-      targetDetail: clean
+      targetDetail: clean,
+      compareMode: "FLOOR_ONLY"
     };
   }
 
-  // 지하 1층 B101호
-  const basementFloorHo = clean.match(/^(지하\s*\d+층)\s*([A-Za-z]?\d+호)$/);
+  // 11층만 입력된 경우
+  const floorOnly = clean.match(/^(\d+)층$/);
+  if (floorOnly) {
+    return {
+      searchType: "floorho",
+      dongNm: "",
+      targetFloor: `${floorOnly[1]}층`,
+      targetFloorNo: floorOnly[1],
+      targetHo: "",
+      targetDetail: clean,
+      compareMode: "FLOOR_ONLY"
+    };
+  }
+
+  // 지하 1층 B101호 → 지하 1층만 검증
+  const basementFloorHo = clean.match(/^지하\s*(\d+)층\s*([A-Za-z]?\d+호)$/);
   if (basementFloorHo) {
     return {
       searchType: "floorho",
       dongNm: "",
-      targetFloor: basementFloorHo[1],
+      targetFloor: `지하 ${basementFloorHo[1]}층`,
+      targetFloorNo: `B${basementFloorHo[1]}`,
       targetHo: basementFloorHo[2],
-      targetDetail: clean
+      targetDetail: clean,
+      compareMode: "FLOOR_ONLY"
     };
   }
 
-  // 302호, B101호
-  const hoOnly = clean.match(/^([0-9A-Za-z]+호)$/);
-  if (hoOnly) {
+  // 지하 1층만 입력된 경우
+  const basementOnly = clean.match(/^지하\s*(\d+)층$/);
+  if (basementOnly) {
     return {
       searchType: "floorho",
       dongNm: "",
+      targetFloor: `지하 ${basementOnly[1]}층`,
+      targetFloorNo: `B${basementOnly[1]}`,
+      targetHo: "",
+      targetDetail: clean,
+      compareMode: "FLOOR_ONLY"
+    };
+  }
+
+  // 101동 1203호는 현재 층 추정하지 않음
+  const dongHo = clean.match(/^([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호)$/);
+  if (dongHo) {
+    return {
+      searchType: "",
+      dongNm: dongHo[1],
       targetFloor: "",
+      targetFloorNo: "",
+      targetHo: dongHo[2],
+      targetDetail: clean,
+      compareMode: "DONG_HO_SKIP"
+    };
+  }
+
+  // 302호만 있는 경우는 층 검증 불가
+  const hoOnly = clean.match(/^([0-9A-Za-z]+호)$/);
+  if (hoOnly) {
+    return {
+      searchType: "",
+      dongNm: "",
+      targetFloor: "",
+      targetFloorNo: "",
       targetHo: hoOnly[1],
-      targetDetail: clean
+      targetDetail: clean,
+      compareMode: "HO_ONLY_SKIP"
     };
   }
 
@@ -465,8 +500,10 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     searchType: "",
     dongNm: "",
     targetFloor: "",
+    targetFloorNo: "",
     targetHo: "",
-    targetDetail: clean
+    targetDetail: clean,
+    compareMode: "NOT_SUPPORTED"
   };
 }
 
@@ -529,7 +566,7 @@ async function searchJusoDetail(jusoResult, detailResult) {
       jusoDetailChecked: false,
       jusoDetailMatch: null,
       jusoDetailStatus: "DETAIL_PATTERN_NOT_SUPPORTED",
-      jusoDetailReason: "Juso 상세주소 API 대조 대상 패턴이 아닙니다.",
+      jusoDetailReason: "층 정보를 추출할 수 없어 Juso 상세주소 API 대조를 수행하지 않았습니다.",
       jusoDetailCandidates: []
     };
   }
@@ -544,10 +581,6 @@ async function searchJusoDetail(jusoResult, detailResult) {
   url.searchParams.set("buldSlno", jusoResult.buldSlno || "0");
   url.searchParams.set("searchType", detail.searchType);
   url.searchParams.set("resultType", "json");
-
-  if (detail.dongNm) {
-    url.searchParams.set("dongNm", detail.dongNm);
-  }
 
   const response = await fetch(url.toString(), {
     method: "GET"
@@ -564,6 +597,7 @@ async function searchJusoDetail(jusoResult, detailResult) {
 
 /**
  * Juso 상세주소 API 결과 파싱
+ * 호수는 보지 않고 층만 비교합니다.
  */
 function parseJusoDetailResult(data, detail) {
   const results = data?.results || {};
@@ -606,31 +640,31 @@ function parseJusoDetailResult(data, detail) {
     };
   });
 
-  const targetDetail = normalizeCompareText(detail.targetDetail);
   const targetFloor = normalizeCompareText(detail.targetFloor);
-  const targetHo = normalizeCompareText(detail.targetHo);
-  const targetDong = normalizeCompareText(detail.dongNm);
+  const targetFloorNo = normalizeCompareText(detail.targetFloorNo);
 
   const matched = candidates.some((candidate) => {
     const candidateText = normalizeCompareText(candidate.text);
 
-    const fullMatch =
-      targetDetail &&
-      (candidateText.includes(targetDetail) || targetDetail.includes(candidateText));
+    if (!targetFloor && !targetFloorNo) {
+      return false;
+    }
 
-    const hoMatch = targetHo && candidateText.includes(targetHo);
-    const floorMatch = targetFloor ? candidateText.includes(targetFloor) : true;
-    const dongMatch = targetDong ? candidateText.includes(targetDong) : true;
-
-    return fullMatch || (hoMatch && floorMatch && dongMatch);
+    return (
+      candidateText.includes(targetFloor) ||
+      candidateText.includes(`${targetFloorNo}층`) ||
+      candidateText.includes(`floor${targetFloorNo}`) ||
+      candidateText.includes(`fl${targetFloorNo}`) ||
+      candidateText.includes(`층${targetFloorNo}`)
+    );
   });
 
   if (matched) {
     return {
       jusoDetailChecked: true,
       jusoDetailMatch: true,
-      jusoDetailStatus: "DETAIL_MATCHED",
-      jusoDetailReason: "Juso 상세주소 API 후보에서 입력 상세주소가 확인되었습니다.",
+      jusoDetailStatus: "FLOOR_MATCHED",
+      jusoDetailReason: "Juso 상세주소 API 후보에서 입력한 층 정보가 확인되었습니다. 호수는 검증하지 않았습니다.",
       jusoDetailCandidates: candidates.slice(0, 20)
     };
   }
@@ -639,11 +673,11 @@ function parseJusoDetailResult(data, detail) {
     jusoDetailChecked: true,
     jusoDetailMatch: false,
     jusoDetailStatus:
-      totalCount === 0 ? "DETAIL_LIST_NOT_PROVIDED" : "DETAIL_NOT_FOUND",
+      totalCount === 0 ? "DETAIL_LIST_NOT_PROVIDED" : "FLOOR_NOT_FOUND",
     jusoDetailReason:
       totalCount === 0
         ? "해당 건물은 Juso 상세주소 후보 리스트를 제공하지 않습니다."
-        : "Juso 상세주소 API 후보에서 입력 상세주소를 찾지 못했습니다.",
+        : "Juso 상세주소 API 후보에서 입력한 층 정보를 찾지 못했습니다. 호수는 검증하지 않았습니다.",
     jusoDetailCandidates: candidates.slice(0, 20)
   };
 }
@@ -788,15 +822,55 @@ function buildFinalResultWithDetailApi(jusoResult, detailResult, detailApiResult
   let detailRiskReason = detailResult.detailRiskReason;
 
   /**
-   * 중요:
-   * DETAIL_LIST_NOT_PROVIDED는 해당 건물이 상세주소 후보 리스트를 제공하지 않는다는 뜻입니다.
-   * 이 경우는 후보 불일치가 아니므로 CHECK_REQUIRED로 떨어뜨리지 않고 기존 패턴 판정을 유지합니다.
+   * 후보 리스트 자체가 없는 경우:
+   * 해당 건물은 Juso 상세주소 후보 리스트를 제공하지 않는 것이므로
+   * CHECK_REQUIRED로 강제 변경하지 않고 기존 패턴 판정을 유지합니다.
+   */
+  if (detailApiResult.jusoDetailStatus === "DETAIL_LIST_NOT_PROVIDED") {
+    return {
+      ...base,
+      ...detailApiResult,
+      finalStatus: base.finalStatus,
+      finalRiskScore: base.finalRiskScore
+    };
+  }
+
+  /**
+   * 층 정보가 확인된 경우:
+   * FLOOR_ONLY처럼 기존에 CHECK_REQUIRED였던 것도 NORMAL로 올릴 수 있습니다.
+   */
+  if (detailApiResult.jusoDetailStatus === "FLOOR_MATCHED") {
+    finalStatus = "NORMAL";
+
+    if (
+      ["FLOOR_HO", "BASEMENT_FLOOR_HO", "FLOOR_ONLY", "BASEMENT_FLOOR_ONLY"].includes(
+        detailResult.detailPattern
+      )
+    ) {
+      detailStatus = "NORMAL";
+      detailRiskScore = 0;
+      detailRiskReason = "층 정보가 확인되었습니다. 호수는 검증하지 않았습니다.";
+    }
+
+    return {
+      ...base,
+      detailStatus,
+      detailRiskScore,
+      detailRiskReason,
+      ...detailApiResult,
+      finalRiskScore: 0,
+      finalStatus
+    };
+  }
+
+  /**
+   * 후보 리스트는 있는데 입력한 층이 없는 경우만 CHECK_REQUIRED
    */
   if (
     detailApiResult.jusoDetailChecked === true &&
     detailApiResult.jusoDetailMatch === false &&
-    detailApiResult.jusoDetailStatus !== "DETAIL_LIST_NOT_PROVIDED" &&
-    ["DONG_HO", "FLOOR_HO", "HO_ONLY", "BASEMENT_FLOOR_HO"].includes(
+    detailApiResult.jusoDetailStatus === "FLOOR_NOT_FOUND" &&
+    ["FLOOR_HO", "BASEMENT_FLOOR_HO", "FLOOR_ONLY", "BASEMENT_FLOOR_ONLY"].includes(
       detailResult.detailPattern
     )
   ) {
@@ -806,16 +880,9 @@ function buildFinalResultWithDetailApi(jusoResult, detailResult, detailApiResult
       finalStatus = "CHECK_REQUIRED";
     }
 
-    if (detailResult.detailStatus === "NORMAL") {
-      detailStatus = "CHECK_REQUIRED";
-      detailRiskScore = detailResult.detailRiskScore + extraRisk;
-      detailRiskReason =
-        "형식은 정상이나 Juso 상세주소 API에서 해당 상세주소가 확인되지 않았습니다.";
-    }
-  }
-
-  if (detailApiResult.jusoDetailMatch === true && base.finalStatus === "NORMAL") {
-    finalStatus = "NORMAL";
+    detailStatus = "CHECK_REQUIRED";
+    detailRiskScore = detailResult.detailRiskScore + extraRisk;
+    detailRiskReason = "형식은 정상이나 Juso 상세주소 API에서 해당 층 정보가 확인되지 않았습니다.";
   }
 
   return {
@@ -935,11 +1002,20 @@ app.post("/debug-juso-detail-list", checkSecret, async (req, res) => {
       };
     });
 
-    const target = normalizeCompareText(detailAddress);
+    const detail = extractDetailSearchInfo(detailResult.detailAddressClean);
+    const targetFloor = normalizeCompareText(detail.targetFloor);
+    const targetFloorNo = normalizeCompareText(detail.targetFloorNo);
 
     const matchedCandidates = candidates.filter((candidate) => {
       const candidateText = normalizeCompareText(candidate.text);
-      return target && candidateText.includes(target);
+
+      return (
+        candidateText.includes(targetFloor) ||
+        candidateText.includes(`${targetFloorNo}층`) ||
+        candidateText.includes(`floor${targetFloorNo}`) ||
+        candidateText.includes(`fl${targetFloorNo}`) ||
+        candidateText.includes(`층${targetFloorNo}`)
+      );
     });
 
     res.json({
@@ -948,6 +1024,7 @@ app.post("/debug-juso-detail-list", checkSecret, async (req, res) => {
       detailAddress,
       jusoResult,
       detailResult,
+      detailSearchInfo: detail,
       detailApiRequestParams: {
         admCd: jusoResult.admCd,
         rnMgtSn: jusoResult.rnMgtSn,
@@ -1058,7 +1135,7 @@ app.post("/validate-addresses", checkSecret, async (req, res) => {
 
         if (
           jusoResult.status === "NORMAL" &&
-          ["DONG_HO", "FLOOR_HO", "HO_ONLY", "BASEMENT_FLOOR_HO"].includes(
+          ["FLOOR_HO", "BASEMENT_FLOOR_HO", "FLOOR_ONLY", "BASEMENT_FLOOR_ONLY"].includes(
             detailResult.detailPattern
           )
         ) {
