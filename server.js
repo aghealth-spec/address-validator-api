@@ -59,6 +59,9 @@ function normalizeDetailAddress(value) {
   // 3F, 3f → 3층
   clean = clean.replace(/(\d+)\s*[Ff]\b/g, "$1층");
 
+  // 지하1층 → 지하 1층
+  clean = clean.replace(/지하\s*(\d+)층/g, "지하 $1층");
+
   // 101동1203호 → 101동 1203호
   clean = clean.replace(/([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호?)$/g, "$1 $2");
 
@@ -68,6 +71,9 @@ function normalizeDetailAddress(value) {
   // 3층302호 → 3층 302호
   clean = clean.replace(/(\d+층)\s*([0-9A-Za-z]+호?)$/g, "$1 $2");
 
+  // 지하 1층B101호 → 지하 1층 B101호
+  clean = clean.replace(/(지하\s*\d+층)\s*([A-Za-z]?\d+호?)$/g, "$1 $2");
+
   // 숫자만 있으면 호수로 보정: 302 → 302호
   if (/^\d{1,4}$/.test(clean)) {
     clean = clean + "호";
@@ -75,6 +81,9 @@ function normalizeDetailAddress(value) {
 
   // "B동 201" → "B동 201호", "3층 302" → "3층 302호"
   clean = clean.replace(/(동|층)\s*(\d{1,4})$/g, "$1 $2호");
+
+  // "지하 1층 B101" → "지하 1층 B101호"
+  clean = clean.replace(/(지하\s*\d+층)\s*([A-Za-z]?\d{1,4})$/g, "$1 $2호");
 
   // 중복 보정
   clean = clean.replace(/호호/g, "호");
@@ -175,6 +184,126 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  /**
+   * 동/호 패턴이지만 동번호 또는 호수 숫자가 과도하게 긴 경우 선검사
+   * 예:
+   * 101동1203호       → 정상 가능
+   * 101동15112호      → 확인필요
+   * 101동1511203호    → 의심
+   */
+  const dongHoMatch = clean.match(/^([0-9A-Za-z가-힣]+)동\s*([0-9A-Za-z]+)호$/);
+
+  if (dongHoMatch) {
+    const dongPart = dongHoMatch[1];
+    const hoPart = dongHoMatch[2];
+
+    const dongDigits = dongPart.replace(/\D/g, "");
+    const hoDigits = hoPart.replace(/\D/g, "");
+
+    if (hoDigits.length >= 7) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "DONG_HO_LONG_HO",
+        detailStatus: "SUSPICIOUS",
+        detailRiskScore: 70,
+        detailRiskReason: "호수 숫자 자릿수가 과도하게 길어 의심주소로 분류되었습니다."
+      };
+    }
+
+    if (hoDigits.length >= 5) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "DONG_HO_LONG_HO",
+        detailStatus: "CHECK_REQUIRED",
+        detailRiskScore: 35,
+        detailRiskReason: "호수 숫자 자릿수가 일반 범위를 초과하여 확인이 필요합니다."
+      };
+    }
+
+    if (dongDigits.length >= 5) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "DONG_HO_LONG_DONG",
+        detailStatus: "CHECK_REQUIRED",
+        detailRiskScore: 30,
+        detailRiskReason: "동 번호 자릿수가 일반 범위를 초과하여 확인이 필요합니다."
+      };
+    }
+  }
+
+  /**
+   * 층/호 패턴도 호수 자릿수 검사
+   * 예:
+   * 3층302호       → 정상 가능
+   * 3층1511203호  → 의심
+   */
+  const floorHoMatch = clean.match(/^(\d+)층\s*([0-9A-Za-z]+)호$/);
+
+  if (floorHoMatch) {
+    const hoPart = floorHoMatch[2];
+    const hoDigits = hoPart.replace(/\D/g, "");
+
+    if (hoDigits.length >= 7) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "FLOOR_HO_LONG_HO",
+        detailStatus: "SUSPICIOUS",
+        detailRiskScore: 70,
+        detailRiskReason: "호수 숫자 자릿수가 과도하게 길어 의심주소로 분류되었습니다."
+      };
+    }
+
+    if (hoDigits.length >= 5) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "FLOOR_HO_LONG_HO",
+        detailStatus: "CHECK_REQUIRED",
+        detailRiskScore: 35,
+        detailRiskReason: "호수 숫자 자릿수가 일반 범위를 초과하여 확인이 필요합니다."
+      };
+    }
+  }
+
+  /**
+   * 호수만 있는 경우도 자릿수 검사
+   * 예:
+   * 302호       → 정상 가능
+   * 1511203호  → 의심
+   */
+  const hoOnlyMatch = clean.match(/^([0-9A-Za-z]+)호$/);
+
+  if (hoOnlyMatch) {
+    const hoPart = hoOnlyMatch[1];
+    const hoDigits = hoPart.replace(/\D/g, "");
+
+    if (hoDigits.length >= 7) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "HO_ONLY_LONG_HO",
+        detailStatus: "SUSPICIOUS",
+        detailRiskScore: 70,
+        detailRiskReason: "호수 숫자 자릿수가 과도하게 길어 의심주소로 분류되었습니다."
+      };
+    }
+
+    if (hoDigits.length >= 5) {
+      return {
+        detailAddressRaw: raw,
+        detailAddressClean: clean,
+        detailPattern: "HO_ONLY_LONG_HO",
+        detailStatus: "CHECK_REQUIRED",
+        detailRiskScore: 35,
+        detailRiskReason: "호수 숫자 자릿수가 일반 범위를 초과하여 확인이 필요합니다."
+      };
+    }
+  }
+
   // 101동 1203호, B동 201호
   if (/^[0-9A-Za-z가-힣]+동\s*[0-9A-Za-z]+호$/.test(clean)) {
     return {
@@ -199,7 +328,19 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
-  // 302호
+  // 지하 1층 B101호
+  if (/^지하\s*\d+층\s*[A-Za-z]?\d+호$/.test(clean)) {
+    return {
+      detailAddressRaw: raw,
+      detailAddressClean: clean,
+      detailPattern: "BASEMENT_FLOOR_HO",
+      detailStatus: "NORMAL",
+      detailRiskScore: 0,
+      detailRiskReason: "지하층/호 패턴 정상"
+    };
+  }
+
+  // 302호, B101호
   if (/^[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -232,6 +373,18 @@ function classifyDetailAddress(detailAddress) {
       detailStatus: "CHECK_REQUIRED",
       detailRiskScore: 25,
       detailRiskReason: "층 정보만 있고 호수가 없습니다."
+    };
+  }
+
+  // 지하 1층만 있음
+  if (/^지하\s*\d+층$/.test(clean)) {
+    return {
+      detailAddressRaw: raw,
+      detailAddressClean: clean,
+      detailPattern: "BASEMENT_FLOOR_ONLY",
+      detailStatus: "CHECK_REQUIRED",
+      detailRiskScore: 25,
+      detailRiskReason: "지하층 정보만 있고 호수가 없습니다."
     };
   }
 
@@ -364,9 +517,11 @@ function buildFinalResult(jusoResult, detailResult) {
       ? 100
       : jusoResult.status === "JUSO_API_ERROR"
         ? 100
-        : jusoResult.status === "MULTIPLE_MATCH"
-          ? 20
-          : 0;
+        : jusoResult.status === "REQUEST_ERROR"
+          ? 100
+          : jusoResult.status === "MULTIPLE_MATCH"
+            ? 20
+            : 0;
 
   const finalRiskScore = jusoRiskScore + detailResult.detailRiskScore;
 
@@ -374,7 +529,10 @@ function buildFinalResult(jusoResult, detailResult) {
 
   if (jusoResult.status === "BASE_ADDR_ERROR") {
     finalStatus = "BASE_ADDR_ERROR";
-  } else if (jusoResult.status === "JUSO_API_ERROR") {
+  } else if (
+    jusoResult.status === "JUSO_API_ERROR" ||
+    jusoResult.status === "REQUEST_ERROR"
+  ) {
     finalStatus = "JUSO_API_ERROR";
   } else if (detailResult.detailStatus === "SUSPICIOUS") {
     finalStatus = "SUSPICIOUS";
