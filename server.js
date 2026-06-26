@@ -191,6 +191,9 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  /**
+   * 동/호 패턴 자릿수 검사
+   */
   const dongHoMatch = clean.match(/^([0-9A-Za-z가-힣]+)동\s*([0-9A-Za-z]+)호$/);
 
   if (dongHoMatch) {
@@ -234,6 +237,9 @@ function classifyDetailAddress(detailAddress) {
     }
   }
 
+  /**
+   * 층/호 패턴 자릿수 검사
+   */
   const floorHoMatch = clean.match(/^(\d+)층\s*([0-9A-Za-z]+)호$/);
 
   if (floorHoMatch) {
@@ -263,6 +269,9 @@ function classifyDetailAddress(detailAddress) {
     }
   }
 
+  /**
+   * 호수만 있는 경우 자릿수 검사
+   */
   const hoOnlyMatch = clean.match(/^([0-9A-Za-z]+)호$/);
 
   if (hoOnlyMatch) {
@@ -292,6 +301,7 @@ function classifyDetailAddress(detailAddress) {
     }
   }
 
+  // 101동 1203호, B동 201호
   if (/^[0-9A-Za-z가-힣]+동\s*[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -303,6 +313,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 3층 302호
   if (/^\d+층\s*[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -314,6 +325,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 지하 1층 B101호
   if (/^지하\s*\d+층\s*[A-Za-z]?\d+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -325,6 +337,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 302호, B101호
   if (/^[0-9A-Za-z]+호$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -336,6 +349,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 101동만 있음
   if (/^[0-9A-Za-z가-힣]+동$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -347,6 +361,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 3층만 있음
   if (/^\d+층$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -358,6 +373,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 지하 1층만 있음
   if (/^지하\s*\d+층$/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -369,6 +385,7 @@ function classifyDetailAddress(detailAddress) {
     };
   }
 
+  // 숫자가 하나도 없음
   if (!/\d/.test(clean)) {
     return {
       detailAddressRaw: raw,
@@ -396,6 +413,7 @@ function classifyDetailAddress(detailAddress) {
 function extractDetailSearchInfo(cleanDetailAddress) {
   const clean = String(cleanDetailAddress || "").trim();
 
+  // 101동 1203호
   const dongHo = clean.match(/^([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호)$/);
   if (dongHo) {
     return {
@@ -407,6 +425,7 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     };
   }
 
+  // 11층 10호
   const floorHo = clean.match(/^(\d+층)\s*([0-9A-Za-z]+호)$/);
   if (floorHo) {
     return {
@@ -418,6 +437,7 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     };
   }
 
+  // 지하 1층 B101호
   const basementFloorHo = clean.match(/^(지하\s*\d+층)\s*([A-Za-z]?\d+호)$/);
   if (basementFloorHo) {
     return {
@@ -429,6 +449,7 @@ function extractDetailSearchInfo(cleanDetailAddress) {
     };
   }
 
+  // 302호, B101호
   const hoOnly = clean.match(/^([0-9A-Za-z]+호)$/);
   if (hoOnly) {
     return {
@@ -617,10 +638,11 @@ function parseJusoDetailResult(data, detail) {
   return {
     jusoDetailChecked: true,
     jusoDetailMatch: false,
-    jusoDetailStatus: totalCount === 0 ? "DETAIL_EMPTY" : "DETAIL_NOT_FOUND",
+    jusoDetailStatus:
+      totalCount === 0 ? "DETAIL_LIST_NOT_PROVIDED" : "DETAIL_NOT_FOUND",
     jusoDetailReason:
       totalCount === 0
-        ? "Juso 상세주소 API 후보가 없습니다."
+        ? "해당 건물은 Juso 상세주소 후보 리스트를 제공하지 않습니다."
         : "Juso 상세주소 API 후보에서 입력 상세주소를 찾지 못했습니다.",
     jusoDetailCandidates: candidates.slice(0, 20)
   };
@@ -765,10 +787,15 @@ function buildFinalResultWithDetailApi(jusoResult, detailResult, detailApiResult
   let detailRiskScore = detailResult.detailRiskScore;
   let detailRiskReason = detailResult.detailRiskReason;
 
+  /**
+   * 중요:
+   * DETAIL_LIST_NOT_PROVIDED는 해당 건물이 상세주소 후보 리스트를 제공하지 않는다는 뜻입니다.
+   * 이 경우는 후보 불일치가 아니므로 CHECK_REQUIRED로 떨어뜨리지 않고 기존 패턴 판정을 유지합니다.
+   */
   if (
     detailApiResult.jusoDetailChecked === true &&
     detailApiResult.jusoDetailMatch === false &&
-    detailApiResult.jusoDetailStatus !== "DETAIL_EMPTY" &&
+    detailApiResult.jusoDetailStatus !== "DETAIL_LIST_NOT_PROVIDED" &&
     ["DONG_HO", "FLOOR_HO", "HO_ONLY", "BASEMENT_FLOOR_HO"].includes(
       detailResult.detailPattern
     )
