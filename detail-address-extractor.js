@@ -1,13 +1,18 @@
 "use strict";
 
-require("dotenv").config();
+import "dotenv/config";
 
-const express = require("express");
-const cors = require("cors");
-const multer = require("multer");
-const XLSX = require("xlsx");
-const fs = require("fs");
-const path = require("path");
+import express from "express";
+import cors from "cors";
+import multer from "multer";
+import * as XLSX from "xlsx";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const { analyzeAddress } = require("./addressAnalyzer");
 
 const app = express();
