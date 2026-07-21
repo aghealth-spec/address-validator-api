@@ -998,7 +998,7 @@ async function searchBuildingTitlesWithFallback(
                 100,
 
               maxPages:
-                10
+                5
             }
           );
 
