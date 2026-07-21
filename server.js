@@ -32,7 +32,7 @@ const BUILDING_API_BASE =
   "https://apis.data.go.kr/1613000/BldRgstHubService";
 
 /* =========================================================
- * 기본 미들웨어
+ * 미들웨어
  * ======================================================= */
 
 app.disable("x-powered-by");
@@ -51,10 +51,6 @@ const allowedOrigins = ALLOWED_ORIGIN
 app.use(
   cors({
     origin(origin, callback) {
-      /*
-       * Postman, curl 및 서버 간 요청은
-       * Origin 헤더가 없을 수 있습니다.
-       */
       if (!origin) {
         return callback(null, true);
       }
@@ -85,7 +81,7 @@ app.use(
 );
 
 /* =========================================================
- * API_SECRET 검사
+ * 인증
  * ======================================================= */
 
 function checkSecret(req, res, next) {
@@ -173,6 +169,22 @@ function sleep(ms) {
   });
 }
 
+function pickFirstValue(row, keys) {
+  for (const key of keys) {
+    const value = row?.[key];
+
+    if (
+      value !== undefined &&
+      value !== null &&
+      String(value).trim() !== ""
+    ) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 /* =========================================================
  * 상세주소 정규화
  * ======================================================= */
@@ -190,6 +202,12 @@ function normalizeDetailAddress(value) {
   clean = clean.replace(
     /(\d+)\s*[Ff]\b/g,
     "$1층"
+  );
+
+  // B1F → 지하 1층
+  clean = clean.replace(
+    /\bB\s*(\d+)\s*[Ff]\b/gi,
+    "지하 $1층"
   );
 
   // 지하1층 → 지하 1층
@@ -210,13 +228,13 @@ function normalizeDetailAddress(value) {
     "$1 $2"
   );
 
-  // 지하 1층B101호 → 지하 1층 B101호
+  // 지하1층B101호 → 지하 1층 B101호
   clean = clean.replace(
     /(지하\s*\d+층)\s*([A-Za-z]?\d+호?)$/g,
     "$1 $2"
   );
 
-  // 숫자만 입력된 경우 호수로 보정
+  // 숫자만 입력되면 호수로 처리
   if (/^\d{1,5}$/.test(clean)) {
     clean += "호";
   }
@@ -233,6 +251,12 @@ function normalizeDetailAddress(value) {
     "$1 $2호"
   );
 
+  // 지하 1층 B101 → 지하 1층 B101호
+  clean = clean.replace(
+    /(지하\s*\d+층)\s*([A-Za-z]?\d+)$/g,
+    "$1 $2호"
+  );
+
   clean = clean
     .replace(/호호/g, "호")
     .replace(/\s+/g, " ")
@@ -245,7 +269,7 @@ function normalizeDetailAddress(value) {
 }
 
 /* =========================================================
- * 동·호 비교용 정규화
+ * 동·호 정규화
  * ======================================================= */
 
 function normalizeDongName(value) {
@@ -260,10 +284,6 @@ function normalizeDongName(value) {
     .replace(/^제/, "")
     .replace(/동$/, "");
 
-  /*
-   * 숫자 동에만 앞자리 0 제거
-   * 0101동 → 101
-   */
   if (/^\d+$/.test(text)) {
     text = text.replace(
       /^0+(?=\d)/,
@@ -286,20 +306,18 @@ function normalizeHoName(value) {
   text = text.replace(/^제/, "");
 
   /*
-   * 건축물대장 전유부 호명칭 예:
-   * 5층505호   → 505호
-   * 10층1001호 → 1001호
-   * 지하1층B101호 → B101호
+   * 전유부 응답 예:
+   * 5층505호 → 505
+   * 10층1001호 → 1001
+   * 지하1층B101호 → b101
    */
   text = text.replace(
-    /^(?:지하\s*\d+층|\d+층)/,
+    /^(?:지하\d+층|\d+층)/,
     ""
   );
 
-  // 마지막 '호' 제거
   text = text.replace(/호$/, "");
 
-  // 숫자 호수 앞자리 0 제거
   if (/^\d+$/.test(text)) {
     text = text.replace(
       /^0+(?=\d)/,
@@ -349,19 +367,14 @@ function inferGroundFloorFromUnit(unitName) {
   const digits = String(unitName ?? "")
     .replace(/\D/g, "");
 
-  /*
-   * 505호 → 5층
-   * 1203호 → 12층
-   *
-   * 동·호 직접 확인 실패 시 사용하는
-   * 보조 추정값입니다.
-   */
+  // 505호 → 5층
   if (digits.length === 3) {
     return Number(
       digits.slice(0, 1)
     );
   }
 
+  // 1203호 → 12층
   if (digits.length === 4) {
     return Number(
       digits.slice(0, 2)
@@ -379,6 +392,9 @@ function parseDetailAddress(detailAddress) {
 
   const clean = normalized.clean;
 
+  /*
+   * 101동 505호
+   */
   let match = clean.match(
     /^([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호)$/
   );
@@ -400,10 +416,6 @@ function parseDetailAddress(detailAddress) {
 
       floorType: "GROUND",
 
-      /*
-       * 호수 기반 추정값
-       * 전유부 직접 일치보다 우선하지 않습니다.
-       */
       inferredFloor:
         inferGroundFloorFromUnit(
           match[2]
@@ -413,6 +425,9 @@ function parseDetailAddress(detailAddress) {
     };
   }
 
+  /*
+   * 11층 1001호
+   */
   match = clean.match(
     /^(\d+)층\s*([0-9A-Za-z]+호)$/
   );
@@ -436,6 +451,9 @@ function parseDetailAddress(detailAddress) {
     };
   }
 
+  /*
+   * 지하 1층 B101호
+   */
   match = clean.match(
     /^지하\s*(\d+)층\s*([A-Za-z]?\d+호)$/
   );
@@ -460,6 +478,9 @@ function parseDetailAddress(detailAddress) {
     };
   }
 
+  /*
+   * 505호
+   */
   match = clean.match(
     /^([0-9A-Za-z]+호)$/
   );
@@ -491,6 +512,7 @@ function parseDetailAddress(detailAddress) {
   return {
     raw: normalized.raw,
     clean,
+
     pattern:
       clean
         ? "UNKNOWN"
@@ -612,6 +634,7 @@ function parseJusoResult(
 
       matched: false,
       status: "JUSO_API_ERROR",
+
       message:
         errorMessage ||
         "Juso API 오류",
@@ -633,6 +656,7 @@ function parseJusoResult(
       matched: false,
       status:
         "BASE_ADDRESS_NOT_FOUND",
+
       message:
         "Juso 기본주소 검색 결과가 없습니다.",
 
@@ -723,12 +747,10 @@ function parseJusoResult(
 }
 
 /* =========================================================
- * 건축물대장 조회 파라미터
+ * 건축물대장 파라미터
  * ======================================================= */
 
-function buildBuildingParams(
-  juso
-) {
+function buildBuildingParams(juso) {
   const admCd = String(
     juso?.admCd || ""
   );
@@ -774,6 +796,42 @@ function buildBuildingParams(
         juso?.lnbrSlno || "0"
       )
   };
+}
+
+/*
+ * 정확지번 + 대표지번 후보 생성
+ *
+ * 예:
+ * 삼성동 159-1
+ * 1차: bun=0159, ji=0001
+ * 2차: bun=0159, ji=0000
+ */
+function buildBuildingParamCandidates(juso) {
+  const exact =
+    buildBuildingParams(juso);
+
+  if (!exact.valid) {
+    return [exact];
+  }
+
+  const candidates = [
+    {
+      ...exact,
+      lookupSource:
+        "JUSO_EXACT_JIBUN"
+    }
+  ];
+
+  if (exact.ji !== "0000") {
+    candidates.push({
+      ...exact,
+      ji: "0000",
+      lookupSource:
+        "MAIN_JIBUN_FALLBACK"
+    });
+  }
+
+  return candidates;
 }
 
 /* =========================================================
@@ -942,25 +1000,26 @@ async function fetchAllBuildingHubItems(
     ...first.items
   ];
 
-  const totalPages = Math.min(
-    maxPages,
+  const realTotalPages =
     Math.max(
       1,
       Math.ceil(
         first.totalCount /
         numOfRows
       )
-    )
-  );
+    );
+
+  const totalPages =
+    Math.min(
+      maxPages,
+      realTotalPages
+    );
 
   for (
     let pageNo = 2;
     pageNo <= totalPages;
     pageNo += 1
   ) {
-    /*
-     * 공공 API에 과도한 연속 요청을 방지합니다.
-     */
     await sleep(30);
 
     const page =
@@ -978,8 +1037,10 @@ async function fetchAllBuildingHubItems(
 
   return {
     operation,
+
     resultCode:
       first.resultCode,
+
     resultMessage:
       first.resultMessage,
 
@@ -994,12 +1055,344 @@ async function fetchAllBuildingHubItems(
 
     truncated:
       totalPages <
-      Math.ceil(
-        first.totalCount /
-        numOfRows
-      ),
+      realTotalPages,
 
-    items: allItems
+    items:
+      allItems
+  };
+}
+
+/* =========================================================
+ * 표제부 폴백 조회
+ * ======================================================= */
+
+async function searchBuildingTitlesWithFallback(
+  juso
+) {
+  const paramCandidates =
+    buildBuildingParamCandidates(
+      juso
+    );
+
+  const attempts = [];
+
+  /*
+   * 1단계
+   * 정확지번·대표지번 표제부 조회
+   */
+  for (const params of paramCandidates) {
+    try {
+      const result =
+        await fetchAllBuildingHubItems(
+          "getBrTitleInfo",
+          params,
+          {
+            numOfRows: 100,
+            maxPages: 10
+          }
+        );
+
+      attempts.push({
+        operation:
+          "getBrTitleInfo",
+
+        lookupSource:
+          params.lookupSource,
+
+        params,
+
+        success: true,
+
+        totalCount:
+          result.totalCount
+      });
+
+      if (result.items.length > 0) {
+        return {
+          matched: true,
+
+          operation:
+            "getBrTitleInfo",
+
+          lookupSource:
+            params.lookupSource,
+
+          matchedParams:
+            params,
+
+          attempts,
+
+          ...result
+        };
+      }
+    } catch (error) {
+      attempts.push({
+        operation:
+          "getBrTitleInfo",
+
+        lookupSource:
+          params.lookupSource,
+
+        params,
+
+        success: false,
+
+        totalCount: 0,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error)
+      });
+    }
+  }
+
+  /*
+   * 2단계
+   * 정확지번·대표지번 총괄표제부 조회
+   */
+  for (const params of paramCandidates) {
+    try {
+      const result =
+        await fetchAllBuildingHubItems(
+          "getBrRecapTitleInfo",
+          params,
+          {
+            numOfRows: 100,
+            maxPages: 10
+          }
+        );
+
+      attempts.push({
+        operation:
+          "getBrRecapTitleInfo",
+
+        lookupSource:
+          params.lookupSource,
+
+        params,
+
+        success: true,
+
+        totalCount:
+          result.totalCount
+      });
+
+      if (result.items.length > 0) {
+        return {
+          matched: true,
+
+          operation:
+            "getBrRecapTitleInfo",
+
+          lookupSource:
+            params.lookupSource,
+
+          matchedParams:
+            params,
+
+          attempts,
+
+          ...result
+        };
+      }
+    } catch (error) {
+      attempts.push({
+        operation:
+          "getBrRecapTitleInfo",
+
+        lookupSource:
+          params.lookupSource,
+
+        params,
+
+        success: false,
+
+        totalCount: 0,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error)
+      });
+    }
+  }
+
+  return {
+    matched: false,
+
+    operation: "",
+
+    lookupSource:
+      "ALL_LOOKUPS_FAILED",
+
+    matchedParams: null,
+
+    attempts,
+
+    resultCode: "",
+    resultMessage: "",
+
+    totalCount: 0,
+    loadedCount: 0,
+    pageCount: 0,
+    truncated: false,
+
+    items: []
+  };
+}
+
+/* =========================================================
+ * 전유부 폴백 조회
+ * ======================================================= */
+
+async function searchExposWithFallback(
+  juso,
+  preferredParams,
+  options = {}
+) {
+  const allCandidates = [];
+
+  if (
+    preferredParams &&
+    preferredParams.valid !== false
+  ) {
+    allCandidates.push({
+      ...preferredParams,
+      lookupSource:
+        preferredParams.lookupSource ||
+        "TITLE_MATCHED_PARAMS"
+    });
+  }
+
+  const defaultCandidates =
+    buildBuildingParamCandidates(
+      juso
+    );
+
+  for (const candidate of defaultCandidates) {
+    const duplicate =
+      allCandidates.some(
+        (item) =>
+          item.sigunguCd ===
+            candidate.sigunguCd &&
+          item.bjdongCd ===
+            candidate.bjdongCd &&
+          item.platGbCd ===
+            candidate.platGbCd &&
+          item.bun ===
+            candidate.bun &&
+          item.ji ===
+            candidate.ji
+      );
+
+    if (!duplicate) {
+      allCandidates.push(
+        candidate
+      );
+    }
+  }
+
+  const attempts = [];
+
+  for (const params of allCandidates) {
+    try {
+      const result =
+        await fetchAllBuildingHubItems(
+          "getBrExposInfo",
+          params,
+          {
+            numOfRows:
+              Number(
+                options.exposRowsPerPage ||
+                100
+              ),
+
+            maxPages:
+              Number(
+                options.exposMaxPages ||
+                30
+              )
+          }
+        );
+
+      attempts.push({
+        operation:
+          "getBrExposInfo",
+
+        lookupSource:
+          params.lookupSource,
+
+        params,
+
+        success: true,
+
+        totalCount:
+          result.totalCount
+      });
+
+      if (result.items.length > 0) {
+        return {
+          matched: true,
+
+          operation:
+            "getBrExposInfo",
+
+          lookupSource:
+            params.lookupSource,
+
+          matchedParams:
+            params,
+
+          attempts,
+
+          ...result
+        };
+      }
+    } catch (error) {
+      attempts.push({
+        operation:
+          "getBrExposInfo",
+
+        lookupSource:
+          params.lookupSource,
+
+        params,
+
+        success: false,
+
+        totalCount: 0,
+
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error)
+      });
+    }
+  }
+
+  return {
+    matched: false,
+
+    operation:
+      "getBrExposInfo",
+
+    lookupSource:
+      "ALL_LOOKUPS_FAILED",
+
+    matchedParams: null,
+
+    attempts,
+
+    resultCode: "",
+    resultMessage: "",
+
+    totalCount: 0,
+    loadedCount: 0,
+    pageCount: 0,
+    truncated: false,
+
+    items: []
   };
 }
 
@@ -1052,11 +1445,17 @@ function mapTitleCandidate(item) {
     landAddress:
       item?.platPlc || "",
 
+    /*
+     * 지상층수
+     */
     groundFloorCount:
       toNumberOrNull(
         item?.grndFlrCnt
       ),
 
+    /*
+     * 지하층수
+     */
     undergroundFloorCount:
       toNumberOrNull(
         item?.ugrndFlrCnt
@@ -1108,60 +1507,46 @@ function isLikelyResidentialTitle(
  * 전유부 매핑
  * ======================================================= */
 
-function pickFirstValue(
-  row,
-  keys
-) {
-  for (const key of keys) {
-    const value = row?.[key];
-
-    if (
-      value !== undefined &&
-      value !== null &&
-      String(value).trim() !== ""
-    ) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
 function mapExposCandidate(item) {
-  const dongName = pickFirstValue(
-    item,
-    [
-      "dongNm",
-      "mainBldNm",
-      "bldNm"
-    ]
-  );
-
-  const hoName = pickFirstValue(
-    item,
-    [
-      "hoNm",
-      "ho",
-      "unitNm"
-    ]
-  );
-
-  const rawFloorNumber = toNumberOrNull(
+  const dongName =
     pickFirstValue(
       item,
       [
-        "flrNo",
-        "floorNo"
+        "dongNm",
+        "mainBldNm",
+        "bldNm"
       ]
-    )
-  );
+    );
+
+  const hoName =
+    pickFirstValue(
+      item,
+      [
+        "hoNm",
+        "ho",
+        "unitNm"
+      ]
+    );
+
+  const rawFloorNumber =
+    toNumberOrNull(
+      pickFirstValue(
+        item,
+        [
+          "flrNo",
+          "floorNo"
+        ]
+      )
+    );
 
   const parsedFloor =
-    extractFloorFromHoName(hoName);
+    extractFloorFromHoName(
+      hoName
+    );
 
   /*
-   * 건축물대장에서 flrNo가 0인 경우
-   * hoNm의 "5층505호"에서 실제 층을 추출합니다.
+   * 전유부의 flrNo가 0인 경우가 있으므로
+   * hoNm의 "5층505호"에서 층을 보완합니다.
    */
   const floorNumber =
     rawFloorNumber !== null &&
@@ -1172,21 +1557,18 @@ function mapExposCandidate(item) {
   const floorType =
     parsedFloor.floorType ||
     (
-      String(item?.flrGbCdNm || "")
-        .includes("지하")
+      String(
+        item?.flrGbCdNm || ""
+      ).includes("지하")
         ? "UNDERGROUND"
-        : String(item?.flrGbCdNm || "")
-            .includes("지상")
+        : String(
+            item?.flrGbCdNm || ""
+          ).includes("지상")
           ? "GROUND"
           : ""
     );
 
   return {
-    /*
-     * 주의:
-     * 전유부의 mgmBldrgstPk는 전유부 레코드 PK일 수 있으므로
-     * 표제부 PK와 동일하다고 가정하면 안 됩니다.
-     */
     exposPk: String(
       item?.mgmBldrgstPk || ""
     ),
@@ -1241,7 +1623,7 @@ function mapExposCandidate(item) {
 }
 
 /* =========================================================
- * 동·호 매칭
+ * 전유부 동·호 매칭
  * ======================================================= */
 
 function evaluateExposMatch(
@@ -1253,9 +1635,6 @@ function evaluateExposMatch(
 
   const hasTargetHo =
     Boolean(detail.targetHo);
-
-  const buildingPkSet =
-    new Set();
 
   const dongMatches = [];
   const unitMatches = [];
@@ -1275,13 +1654,37 @@ function evaluateExposMatch(
       candidate.normalizedHo ===
       detail.targetHo;
 
+    /*
+     * 사용자가 층을 직접 입력한 경우:
+     * 11층 1001호
+     *
+     * 같은 1001호가 여러 층에 존재할 가능성을 고려해
+     * 층 정보도 함께 검사합니다.
+     */
+    const inputFloorMatched =
+      !Number.isFinite(
+        detail.inputFloor
+      ) ||
+      !Number.isFinite(
+        candidate.floorNumber
+      ) ||
+      (
+        candidate.floorType ===
+          detail.floorType &&
+        candidate.floorNumber ===
+          detail.inputFloor
+      );
+
     if (dongMatched) {
       dongMatches.push(
         candidate
       );
     }
 
-    if (hoMatched) {
+    if (
+      hoMatched &&
+      inputFloorMatched
+    ) {
       unitMatches.push(
         candidate
       );
@@ -1296,6 +1699,7 @@ function evaluateExposMatch(
         !hasTargetHo ||
         hoMatched
       ) &&
+      inputFloorMatched &&
       (
         hasTargetDong ||
         hasTargetHo
@@ -1304,12 +1708,6 @@ function evaluateExposMatch(
       exactMatches.push(
         candidate
       );
-
-      if (candidate.buildingPk) {
-        buildingPkSet.add(
-          candidate.buildingPk
-        );
-      }
     }
   }
 
@@ -1368,8 +1766,15 @@ function evaluateExposMatch(
       "DONG_UNIT_NOT_FOUND";
 
     reason =
-      "전유부 데이터는 제공됐지만 입력한 동·호를 찾지 못했습니다.";
+      "전유부 데이터는 제공됐지만 입력한 동·호 또는 층 조건을 찾지 못했습니다.";
   }
+
+  const matchedExposPks =
+    exactMatches
+      .map((candidate) =>
+        candidate.exposPk
+      )
+      .filter(Boolean);
 
   return {
     checked: true,
@@ -1389,6 +1794,12 @@ function evaluateExposMatch(
     normalizedTargetHo:
       detail.targetHo,
 
+    inputFloorType:
+      detail.floorType,
+
+    inputFloor:
+      detail.inputFloor,
+
     dongMatched:
       dongMatches.length > 0,
 
@@ -1401,8 +1812,7 @@ function evaluateExposMatch(
     status,
     reason,
 
-    matchedBuildingPks:
-      Array.from(buildingPkSet),
+    matchedExposPks,
 
     dongMatchCount:
       dongMatches.length,
@@ -1425,18 +1835,18 @@ function evaluateExposMatch(
 }
 
 /* =========================================================
- * 일치 표제부 선택
+ * 표제부 선택
  * ======================================================= */
 
 function selectMatchedTitle(
   titleCandidates,
   exposMatch,
-  detail
+  detail,
+  juso
 ) {
   /*
    * 1순위:
-   * 전유부에서 동·호가 직접 일치한 경우,
-   * 일치 결과의 동명으로 표제부 선택
+   * 전유부 일치 동명으로 표제부 선택
    */
   const matchedDongNames =
     new Set(
@@ -1449,32 +1859,34 @@ function selectMatchedTitle(
         .filter(Boolean)
     );
 
-  const exposDongTitles =
-    titleCandidates.filter(
-      (candidate) =>
-        matchedDongNames.has(
-          normalizeDongName(
-            candidate.dongName
+  if (matchedDongNames.size > 0) {
+    const exposDongTitles =
+      titleCandidates.filter(
+        (candidate) =>
+          matchedDongNames.has(
+            normalizeDongName(
+              candidate.dongName
+            )
           )
-        )
-    );
+      );
 
-  if (exposDongTitles.length > 0) {
-    return {
-      source:
-        "EXPOS_DONG_UNIT_MATCH",
+    if (exposDongTitles.length > 0) {
+      return {
+        source:
+          "EXPOS_DONG_UNIT_MATCH",
 
-      selected:
-        exposDongTitles[0],
+        selected:
+          exposDongTitles[0],
 
-      candidates:
-        exposDongTitles
-    };
+        candidates:
+          exposDongTitles
+      };
+    }
   }
 
   /*
    * 2순위:
-   * 입력 동과 표제부 동명 직접 비교
+   * 입력 동과 표제부 동명 일치
    */
   if (detail.targetDong) {
     const dongTitles =
@@ -1482,7 +1894,8 @@ function selectMatchedTitle(
         (candidate) =>
           normalizeDongName(
             candidate.dongName
-          ) === detail.targetDong
+          ) ===
+          detail.targetDong
       );
 
     if (dongTitles.length > 0) {
@@ -1499,6 +1912,90 @@ function selectMatchedTitle(
     }
   }
 
+  /*
+   * 3순위:
+   * Juso 건물명과 표제부 건물명 일치
+   *
+   * 트레이드타워처럼 동명이 없는 업무시설용
+   */
+  const jusoBuildingName =
+    normalizeCompareText(
+      juso?.bdNm || ""
+    );
+
+  if (jusoBuildingName) {
+    const buildingNameTitles =
+      titleCandidates.filter(
+        (candidate) => {
+          const candidateName =
+            normalizeCompareText(
+              candidate.buildingName
+            );
+
+          return (
+            candidateName ===
+              jusoBuildingName ||
+            candidateName.includes(
+              jusoBuildingName
+            ) ||
+            jusoBuildingName.includes(
+              candidateName
+            )
+          );
+        }
+      );
+
+    if (
+      buildingNameTitles.length === 1
+    ) {
+      return {
+        source:
+          "JUSO_BUILDING_NAME_MATCH",
+
+        selected:
+          buildingNameTitles[0],
+
+        candidates:
+          buildingNameTitles
+      };
+    }
+
+    if (
+      buildingNameTitles.length > 1
+    ) {
+      return {
+        source:
+          "JUSO_BUILDING_NAME_MULTIPLE",
+
+        selected: null,
+
+        candidates:
+          buildingNameTitles
+      };
+    }
+  }
+
+  /*
+   * 4순위:
+   * 표제부 단일 후보
+   */
+  if (titleCandidates.length === 1) {
+    return {
+      source:
+        "SINGLE_TITLE",
+
+      selected:
+        titleCandidates[0],
+
+      candidates:
+        titleCandidates
+    };
+  }
+
+  /*
+   * 5순위:
+   * 공동주택 단일 후보
+   */
   const residentialTitles =
     titleCandidates.filter(
       isLikelyResidentialTitle
@@ -1533,7 +2030,7 @@ function selectMatchedTitle(
 }
 
 /* =========================================================
- * 층수 검증
+ * 층수 결정
  * ======================================================= */
 
 function determineFloorForCheck(
@@ -1541,36 +2038,13 @@ function determineFloorForCheck(
   exposMatch
 ) {
   /*
-   * 1순위:
-   * 전유부 직접 일치 결과의 층
-   */
-  const exactFloor =
-    exposMatch.exactMatches
-      .map((candidate) =>
-        candidate.floorNumber
-      )
-      .find((value) =>
-        Number.isFinite(value)
-      );
-
-  if (
-    Number.isFinite(exactFloor)
-  ) {
-    return {
-      floorType:
-        "GROUND",
-
-      floorNumber:
-        exactFloor,
-
-      source:
-        "EXPOS_REGISTER"
-    };
-  }
-
-  /*
-   * 2순위:
-   * 상세주소에 층이 직접 입력됨
+   * 입력 층이 직접 있는 경우 우선
+   *
+   * 예:
+   * 11층 1001호
+   *
+   * 호명이 1001호라고 해서
+   * 반드시 10층이라고 판단하지 않습니다.
    */
   if (
     Number.isFinite(
@@ -1590,7 +2064,31 @@ function determineFloorForCheck(
   }
 
   /*
-   * 3순위:
+   * 전유부 직접 일치 층
+   */
+  const exactCandidate =
+    exposMatch.exactMatches.find(
+      (candidate) =>
+        Number.isFinite(
+          candidate.floorNumber
+        )
+    );
+
+  if (exactCandidate) {
+    return {
+      floorType:
+        exactCandidate.floorType ||
+        "GROUND",
+
+      floorNumber:
+        exactCandidate.floorNumber,
+
+      source:
+        "EXPOS_REGISTER"
+    };
+  }
+
+  /*
    * 505호 → 5층 추정
    */
   if (
@@ -1617,6 +2115,10 @@ function determineFloorForCheck(
   };
 }
 
+/* =========================================================
+ * 층수 범위 검증
+ * ======================================================= */
+
 function evaluateSingleTitleFloor(
   title,
   floorInfo
@@ -1629,8 +2131,13 @@ function evaluateSingleTitleFloor(
   ) {
     return {
       checked: false,
-      floorWithinRange: null,
-      status: "NOT_CHECKED",
+
+      floorWithinRange:
+        null,
+
+      status:
+        "NOT_CHECKED",
+
       reason:
         "선택된 표제부 또는 입력 층 정보가 없습니다."
     };
@@ -1639,6 +2146,9 @@ function evaluateSingleTitleFloor(
   const inputFloor =
     floorInfo.floorNumber;
 
+  /*
+   * 지하층 검증
+   */
   if (
     floorInfo.floorType ===
     "UNDERGROUND"
@@ -1651,9 +2161,13 @@ function evaluateSingleTitleFloor(
     ) {
       return {
         checked: true,
-        floorWithinRange: null,
+
+        floorWithinRange:
+          null,
+
         status:
           "UNDERGROUND_COUNT_UNAVAILABLE",
+
         reason:
           "선택된 표제부에서 지하층수를 확인하지 못했습니다."
       };
@@ -1661,6 +2175,14 @@ function evaluateSingleTitleFloor(
 
     return {
       checked: true,
+
+      inputFloorType:
+        "UNDERGROUND",
+
+      inputFloor,
+
+      maximumFloor:
+        maxFloor,
 
       floorWithinRange:
         inputFloor <= maxFloor,
@@ -1677,17 +2199,22 @@ function evaluateSingleTitleFloor(
     };
   }
 
+  /*
+   * 지상층 검증
+   */
   const maxFloor =
     title.groundFloorCount;
 
-  if (
-    !Number.isFinite(maxFloor)
-  ) {
+  if (!Number.isFinite(maxFloor)) {
     return {
       checked: true,
-      floorWithinRange: null,
+
+      floorWithinRange:
+        null,
+
       status:
         "GROUND_COUNT_UNAVAILABLE",
+
       reason:
         "선택된 표제부에서 지상층수를 확인하지 못했습니다."
     };
@@ -1695,6 +2222,14 @@ function evaluateSingleTitleFloor(
 
   return {
     checked: true,
+
+    inputFloorType:
+      "GROUND",
+
+    inputFloor,
+
+    maximumFloor:
+      maxFloor,
 
     floorWithinRange:
       inputFloor <= maxFloor,
@@ -1723,8 +2258,10 @@ function evaluateCandidateFloorRanges(
     return {
       checked: false,
 
-      inputFloor:
-        null,
+      inputFloorType:
+        floorInfo.floorType,
+
+      inputFloor: null,
 
       floorSource:
         floorInfo.source,
@@ -1739,39 +2276,40 @@ function evaluateCandidateFloorRanges(
     };
   }
 
-  const candidates =
+  const residentialCandidates =
     titleCandidates.filter(
       isLikelyResidentialTitle
     );
 
   const targets =
-    candidates.length > 0
-      ? candidates
+    residentialCandidates.length > 0
+      ? residentialCandidates
       : titleCandidates;
 
-  const results = targets.map(
-    (title) => ({
-      buildingPk:
-        title.buildingPk,
+  const results =
+    targets.map(
+      (title) => ({
+        buildingPk:
+          title.buildingPk,
 
-      dongName:
-        title.dongName,
+        dongName:
+          title.dongName,
 
-      buildingName:
-        title.buildingName,
+        buildingName:
+          title.buildingName,
 
-      groundFloorCount:
-        title.groundFloorCount,
+        groundFloorCount:
+          title.groundFloorCount,
 
-      undergroundFloorCount:
-        title.undergroundFloorCount,
+        undergroundFloorCount:
+          title.undergroundFloorCount,
 
-      ...evaluateSingleTitleFloor(
-        title,
-        floorInfo
-      )
-    })
-  );
+        ...evaluateSingleTitleFloor(
+          title,
+          floorInfo
+        )
+      })
+    );
 
   const comparable =
     results.filter(
@@ -1821,7 +2359,6 @@ function evaluateCandidateFloorRanges(
 
 function buildVerification(
   jusoResult,
-  detail,
   titleResult,
   exposResult,
   titleSelection,
@@ -1858,10 +2395,10 @@ function buildVerification(
       "Juso 기본주소가 확인되지 않았습니다.";
   } else if (!titleVerified) {
     status =
-      "BUILDING_REGISTER_NOT_FOUND";
+      "BUILDING_REGISTER_DATA_UNAVAILABLE";
 
     reason =
-      "Juso 기본주소는 확인됐지만 건축물대장 표제부가 조회되지 않았습니다.";
+      "Juso 기본주소는 확인됐지만 정확지번·대표지번·총괄표제부에서 건축물대장 데이터가 제공되지 않았습니다.";
   } else if (unitVerified) {
     if (
       selectedFloorCheck
@@ -1872,7 +2409,7 @@ function buildVerification(
         "DONG_UNIT_MATCHED_FLOOR_CONFLICT";
 
       reason =
-        "전유부에서 동·호는 확인됐지만 표제부 층수와 충돌합니다.";
+        "전유부에서 동·호는 확인됐지만 표제부의 지상·지하 층수와 충돌합니다.";
     } else {
       status =
         "DONG_UNIT_VERIFIED";
@@ -1912,6 +2449,26 @@ function buildVerification(
     "EXPOS_DATA_UNAVAILABLE"
   ) {
     if (
+      selectedFloorCheck
+        .floorWithinRange ===
+      true
+    ) {
+      status =
+        "BUILDING_FLOOR_RANGE_VERIFIED";
+
+      reason =
+        "전유부 데이터는 없지만 입력 층이 선택된 건물의 지상·지하 층수 범위 안에 있습니다.";
+    } else if (
+      selectedFloorCheck
+        .floorWithinRange ===
+      false
+    ) {
+      status =
+        "BUILDING_FLOOR_OUT_OF_RANGE";
+
+      reason =
+        selectedFloorCheck.reason;
+    } else if (
       candidateFloorCheck
         .withinAllCandidates ===
       true
@@ -1963,21 +2520,34 @@ function buildVerification(
     selectedTitleVerified
   ) {
     status =
-      "BUILDING_TITLE_VERIFIED";
+      titleResult.usedFallback
+        ? "BUILDING_REGISTER_FALLBACK_MATCHED"
+        : "BUILDING_TITLE_VERIFIED";
 
     reason =
-      "건축물대장 표제부 후보는 확인됐지만 동·호는 확인되지 않았습니다.";
+      titleResult.usedFallback
+        ? "Juso 정확지번에서는 표제부가 조회되지 않았지만 대표지번 또는 총괄표제부에서 건물을 확인했습니다."
+        : "건축물대장 표제부 후보는 확인됐지만 동·호는 확인되지 않았습니다.";
   } else {
     status =
       "BUILDING_MULTIPLE_TITLE_UNRESOLVED";
 
     reason =
-      "표제부 후보가 여러 건이며 입력 동·호와 연결되는 건물을 확정하지 못했습니다.";
+      "표제부 후보가 여러 건이며 입력 상세주소와 연결되는 건물을 확정하지 못했습니다.";
   }
 
   return {
     buildingVerified,
     titleVerified,
+
+    buildingRegisterFallbackUsed:
+      titleResult.usedFallback,
+
+    buildingRegisterLookupOperation:
+      titleResult.lookupOperation,
+
+    buildingRegisterLookupSource:
+      titleResult.lookupSource,
 
     exposDataProvided:
       exposResult.dataProvided,
@@ -1995,11 +2565,17 @@ function buildVerification(
       titleSelection.selected
         ?.dongName || "",
 
+    /*
+     * 최종 선택 건물 지상층수
+     */
     groundFloorCount:
       titleSelection.selected
         ?.groundFloorCount ??
       null,
 
+    /*
+     * 최종 선택 건물 지하층수
+     */
     undergroundFloorCount:
       titleSelection.selected
         ?.undergroundFloorCount ??
@@ -2034,10 +2610,10 @@ function buildVerification(
         "JUSO_BASIC_ADDRESS",
 
       buildingTitle:
-        "BUILDING_REGISTER_TITLE",
+        "BUILDING_REGISTER_TITLE_WITH_MAIN_JIBUN_AND_RECAP_FALLBACK",
 
       buildingFloorCount:
-        "BUILDING_REGISTER_TITLE_GROUND_UNDERGROUND",
+        "BUILDING_REGISTER_GROUND_UNDERGROUND",
 
       dongUnit:
         "BUILDING_REGISTER_EXPOS",
@@ -2049,20 +2625,22 @@ function buildVerification(
 }
 
 /* =========================================================
- * 주소 1건 전체 검증
+ * 주소 1건 검증
  * ======================================================= */
 
 async function validateOneAddress(
   item,
   options = {}
 ) {
-  const orderNo = cleanText(
-    item?.orderNo
-  );
+  const orderNo =
+    cleanText(
+      item?.orderNo
+    );
 
-  const baseAddress = cleanText(
-    item?.baseAddress
-  );
+  const baseAddress =
+    cleanText(
+      item?.baseAddress
+    );
 
   const detailAddress =
     normalizeDetailAddress(
@@ -2080,11 +2658,18 @@ async function validateOneAddress(
       baseAddress,
       detailAddress,
 
-      status:
-        "EMPTY_BASE_ADDRESS",
+      verification: {
+        buildingVerified: false,
+        titleVerified: false,
+        dongVerified: false,
+        unitVerified: false,
 
-      message:
-        "기본주소가 없습니다."
+        status:
+          "EMPTY_BASE_ADDRESS",
+
+        reason:
+          "기본주소가 없습니다."
+      }
     };
   }
 
@@ -2131,7 +2716,7 @@ async function validateOneAddress(
   }
 
   /*
-   * 2. 지번 조회 파라미터 생성
+   * 2. 기본 지번 파라미터
    */
   const buildingParams =
     buildBuildingParams(
@@ -2165,20 +2750,30 @@ async function validateOneAddress(
 
   /*
    * 3. 표제부 조회
+   *
+   * 정확지번 → 대표지번
+   * → 총괄표제부 정확지번
+   * → 총괄표제부 대표지번
    */
   const titleRawResult =
-    await fetchAllBuildingHubItems(
-      "getBrTitleInfo",
-      buildingParams,
-      {
-        numOfRows: 100,
-        maxPages: 10
-      }
+    await searchBuildingTitlesWithFallback(
+      jusoResult.selected
     );
 
   const titleCandidates =
     titleRawResult.items.map(
       mapTitleCandidate
+    );
+
+  const usedFallback =
+    Boolean(
+      titleRawResult.matched &&
+      (
+        titleRawResult.lookupSource !==
+          "JUSO_EXACT_JIBUN" ||
+        titleRawResult.operation !==
+          "getBrTitleInfo"
+      )
     );
 
   const titleResult = {
@@ -2194,11 +2789,28 @@ async function validateOneAddress(
           ? "TITLE_MATCHED"
           : "TITLE_MULTIPLE_MATCH",
 
+    lookupOperation:
+      titleRawResult.operation,
+
+    lookupSource:
+      titleRawResult.lookupSource,
+
+    usedFallback,
+
+    matchedParams:
+      titleRawResult.matchedParams,
+
+    lookupAttempts:
+      titleRawResult.attempts,
+
     totalCount:
       titleRawResult.totalCount,
 
     loadedCount:
       titleRawResult.loadedCount,
+
+    pageCount:
+      titleRawResult.pageCount,
 
     truncated:
       titleRawResult.truncated,
@@ -2207,6 +2819,7 @@ async function validateOneAddress(
       titleCandidates.map(
         (candidate) => ({
           ...candidate,
+
           raw:
             options.includeRaw === true
               ? candidate.raw
@@ -2218,23 +2831,19 @@ async function validateOneAddress(
   /*
    * 4. 전유부 조회
    *
-   * 동일 지번 전체 전유부를 조회한 뒤
-   * mgmBldrgstPk를 기준으로 표제부와 연결합니다.
+   * 표제부가 성공한 지번을 우선 사용하고,
+   * 실패하면 정확지번·대표지번을 순차 조회합니다.
    */
   const exposRawResult =
-    await fetchAllBuildingHubItems(
-      "getBrExposInfo",
-      buildingParams,
+    await searchExposWithFallback(
+      jusoResult.selected,
+      titleRawResult.matchedParams,
       {
-        numOfRows: Number(
-          options.exposRowsPerPage ||
-          100
-        ),
+        exposRowsPerPage:
+          options.exposRowsPerPage,
 
-        maxPages: Number(
-          options.exposMaxPages ||
-          30
-        )
+        exposMaxPages:
+          options.exposMaxPages
       }
     );
 
@@ -2244,7 +2853,7 @@ async function validateOneAddress(
     );
 
   /*
-   * 5. 입력 동·호와 전유부 비교
+   * 5. 상세주소 비교
    */
   const exposMatch =
     evaluateExposMatch(
@@ -2254,6 +2863,18 @@ async function validateOneAddress(
 
   const exposResult = {
     ...exposMatch,
+
+    lookupOperation:
+      exposRawResult.operation,
+
+    lookupSource:
+      exposRawResult.lookupSource,
+
+    lookupParams:
+      exposRawResult.matchedParams,
+
+    lookupAttempts:
+      exposRawResult.attempts,
 
     totalCount:
       exposRawResult.totalCount,
@@ -2267,10 +2888,6 @@ async function validateOneAddress(
     truncated:
       exposRawResult.truncated,
 
-    /*
-     * 결과가 너무 커지는 것을 방지해
-     * 기본 응답에는 앞부분만 제공합니다.
-     */
     candidates:
       exposCandidates
         .slice(
@@ -2282,6 +2899,7 @@ async function validateOneAddress(
         )
         .map((candidate) => ({
           ...candidate,
+
           raw:
             options.includeRaw === true
               ? candidate.raw
@@ -2290,17 +2908,18 @@ async function validateOneAddress(
   };
 
   /*
-   * 6. 동·호가 일치한 PK로 표제부 선택
+   * 6. 표제부 최종 선택
    */
   const titleSelection =
     selectMatchedTitle(
       titleCandidates,
       exposMatch,
-      detail
+      detail,
+      jusoResult.selected
     );
 
   /*
-   * 7. 층 결정
+   * 7. 검증할 층 결정
    */
   const floorInfo =
     determineFloorForCheck(
@@ -2309,7 +2928,7 @@ async function validateOneAddress(
     );
 
   /*
-   * 8. 선택된 건물 층수 비교
+   * 8. 선택된 건물의 지상·지하 층수와 비교
    */
   const selectedFloorCheck =
     evaluateSingleTitleFloor(
@@ -2318,8 +2937,7 @@ async function validateOneAddress(
     );
 
   /*
-   * 9. 특정 동을 선택하지 못한 경우
-   *    전체 표제부 후보 기준 층수 비교
+   * 9. 선택 건물이 없으면 후보 전체 비교
    */
   const candidateFloorCheck =
     evaluateCandidateFloorRanges(
@@ -2328,12 +2946,11 @@ async function validateOneAddress(
     );
 
   /*
-   * 10. 최종 검증
+   * 10. 최종 판정
    */
   const verification =
     buildVerification(
       jusoResult,
-      detail,
       titleResult,
       exposResult,
       titleSelection,
@@ -2355,7 +2972,44 @@ async function validateOneAddress(
       requestParams:
         buildingParams,
 
-      ...titleResult,
+      lookupOperation:
+        titleResult.lookupOperation,
+
+      lookupSource:
+        titleResult.lookupSource,
+
+      fallbackUsed:
+        titleResult.usedFallback,
+
+      matchedParams:
+        titleResult.matchedParams,
+
+      lookupAttempts:
+        titleResult.lookupAttempts,
+
+      checked:
+        titleResult.checked,
+
+      matched:
+        titleResult.matched,
+
+      status:
+        titleResult.status,
+
+      totalCount:
+        titleResult.totalCount,
+
+      loadedCount:
+        titleResult.loadedCount,
+
+      pageCount:
+        titleResult.pageCount,
+
+      truncated:
+        titleResult.truncated,
+
+      candidates:
+        titleResult.candidates,
 
       selectedSource:
         titleSelection.source,
@@ -2376,8 +3030,7 @@ async function validateOneAddress(
           : null,
 
       /*
-       * 요청하신 지상·지하 층수는
-       * 표제부 후보별로 모두 유지됩니다.
+       * 표제부 후보별 지상·지하 층수 유지
        */
       floorCandidates:
         titleCandidates.map(
@@ -2436,15 +3089,23 @@ app.get("/", (req, res) => {
     service:
       "address-validator-api",
 
-    step: 3,
+    step: 4,
 
     process: [
       "JUSO_BASIC_ADDRESS",
-      "BUILDING_REGISTER_TITLE",
-      "TITLE_MGM_BLD_REG_PK",
+
+      "BUILDING_REGISTER_EXACT_TITLE",
+
+      "BUILDING_REGISTER_MAIN_JIBUN_FALLBACK",
+
+      "BUILDING_REGISTER_RECAP_TITLE_FALLBACK",
+
       "BUILDING_GROUND_UNDERGROUND_FLOORS",
+
       "BUILDING_REGISTER_EXPOS",
-      "DONG_UNIT_MATCH",
+
+      "DONG_UNIT_FLOOR_MATCH",
+
       "FINAL_VERIFICATION"
     ],
 
@@ -2460,7 +3121,7 @@ app.get("/health", (req, res) => {
     service:
       "address-validator-api",
 
-    step: 3,
+    step: 4,
 
     jusoApiConfigured:
       Boolean(JUSO_API_KEY),
@@ -2476,7 +3137,7 @@ app.get("/health", (req, res) => {
 });
 
 /* =========================================================
- * 단일 주소 디버그 API
+ * 단일 주소 디버그
  * ======================================================= */
 
 app.post(
@@ -2539,8 +3200,7 @@ app.post(
 );
 
 /*
- * 기존 사용 중인 디버그 URL도
- * 동일하게 유지합니다.
+ * 기존 URL 유지
  */
 app.post(
   "/debug-juso-detail-list",
@@ -2602,7 +3262,7 @@ app.post(
 );
 
 /* =========================================================
- * 일괄 주소 검증 API
+ * 일괄 검증
  * ======================================================= */
 
 app.post(
@@ -2610,30 +3270,32 @@ app.post(
   checkSecret,
   async (req, res) => {
     try {
-      const items = Array.isArray(
-        req.body?.items
-      )
-        ? req.body.items
-        : [];
+      const items =
+        Array.isArray(
+          req.body?.items
+        )
+          ? req.body.items
+          : [];
 
       if (items.length === 0) {
         return res.status(400).json({
           ok: false,
+
           message:
             "items 배열이 필요합니다."
         });
       }
 
       /*
-       * 전유부 조회는 결과가 많고 페이지가 여러 번
-       * 호출될 수 있으므로 우선 10건으로 제한합니다.
+       * 전유부·폴백 조회는 호출 수가 많을 수 있으므로
+       * 일단 요청당 10건 제한
        */
       if (items.length > 10) {
         return res.status(400).json({
           ok: false,
 
           message:
-            "전유부 조회 단계에서는 한 번에 최대 10건까지만 허용합니다."
+            "한 번에 최대 10건까지만 허용합니다."
         });
       }
 
@@ -2703,8 +3365,12 @@ app.post(
 
       return res.json({
         ok: true,
-        step: 3,
-        count: results.length,
+
+        step: 4,
+
+        count:
+          results.length,
+
         results
       });
     } catch (error) {
@@ -2723,19 +3389,20 @@ app.post(
 );
 
 /* =========================================================
- * 404 처리
+ * 404
  * ======================================================= */
 
 app.use((req, res) => {
   return res.status(404).json({
     ok: false,
+
     message:
       "요청한 API 경로가 없습니다."
   });
 });
 
 /* =========================================================
- * 공통 오류 처리
+ * 오류 처리
  * ======================================================= */
 
 app.use(
@@ -2764,7 +3431,7 @@ app.use(
 );
 
 /* =========================================================
- * Railway 서버 실행
+ * Railway 실행
  * ======================================================= */
 
 app.listen(
