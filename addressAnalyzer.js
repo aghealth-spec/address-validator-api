@@ -471,7 +471,7 @@ async function analyzeAddress(inputAddress) {
   };
 }
 
-module.exports = {
+export {
   analyzeAddress,
   cleanAddress,
   makeSearchCandidates,
