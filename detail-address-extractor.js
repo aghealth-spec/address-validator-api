@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const { analyzeAddress } = require("./addressAnalyzer");
+import { analyzeAddress } from "./addressAnalyzer.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
