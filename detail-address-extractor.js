@@ -114,7 +114,8 @@ app.use(
 
 app.use(
   express.json({
-    limit: "10mb"
+    limit:
+      "10mb"
   })
 );
 
@@ -214,10 +215,12 @@ function makeDownloadFileName() {
   const dateText =
     [
       now.getFullYear(),
+
       pad(
         now.getMonth() +
         1
       ),
+
       pad(
         now.getDate()
       )
@@ -228,9 +231,11 @@ function makeDownloadFileName() {
       pad(
         now.getHours()
       ),
+
       pad(
         now.getMinutes()
       ),
+
       pad(
         now.getSeconds()
       )
@@ -247,7 +252,8 @@ app.get(
   "/api/health",
   (req, res) => {
     return res.json({
-      ok: true,
+      ok:
+        true,
 
       service:
         "detail-address-extractor",
@@ -257,6 +263,17 @@ app.get(
           process.env
             .JUSO_CONFIRM_KEY
         ),
+
+      buildingKeyConfigured:
+        Boolean(
+          process.env
+            .BUILDING_API_KEY
+        ),
+
+      buildingApiUrl:
+        process.env
+          .BUILDING_API_URL ||
+        "기본 건축물대장 API URL 사용",
 
       timestamp:
         new Date()
@@ -286,7 +303,8 @@ app.post(
         return res
           .status(400)
           .json({
-            ok: false,
+            ok:
+              false,
 
             reason:
               "address가 없습니다."
@@ -309,7 +327,8 @@ app.post(
       return res
         .status(500)
         .json({
-          ok: false,
+          ok:
+            false,
 
           reason:
             getErrorMessage(
@@ -326,9 +345,11 @@ app.post(
 
 app.post(
   "/api/excel/analyze",
+
   upload.single(
     "file"
   ),
+
   async (
     req,
     res
@@ -344,7 +365,8 @@ app.post(
         return res
           .status(400)
           .json({
-            ok: false,
+            ok:
+              false,
 
             reason:
               "업로드된 엑셀 파일이 없습니다."
@@ -388,7 +410,8 @@ app.post(
         return res
           .status(400)
           .json({
-            ok: false,
+            ok:
+              false,
 
             reason:
               "엑셀 시트를 찾지 못했습니다."
@@ -409,7 +432,8 @@ app.post(
         return res
           .status(400)
           .json({
-            ok: false,
+            ok:
+              false,
 
             reason:
               "첫 번째 엑셀 시트를 읽지 못했습니다."
@@ -435,7 +459,8 @@ app.post(
         return res
           .status(400)
           .json({
-            ok: false,
+            ok:
+              false,
 
             reason:
               "엑셀에 데이터가 없습니다."
@@ -468,7 +493,8 @@ app.post(
         return res
           .status(400)
           .json({
-            ok: false,
+            ok:
+              false,
 
             reason:
               "주소 열을 찾지 못했습니다. 헤더명을 '주소'로 설정해 주세요."
@@ -511,7 +537,8 @@ app.post(
 
         if (!inputAddress) {
           analyzed = {
-            ok: false,
+            ok:
+              false,
 
             reason:
               "주소가 비어 있습니다."
@@ -524,7 +551,8 @@ app.post(
               );
           } catch (error) {
             analyzed = {
-              ok: false,
+              ok:
+                false,
 
               reason:
                 getErrorMessage(
@@ -579,6 +607,50 @@ app.post(
               .buildingManagementNo ||
             "",
 
+          /*
+           * 건축물대장 조회 결과
+           */
+          전체층수:
+            analyzed
+              .totalFloorText ||
+            "",
+
+          지상층수:
+            analyzed
+              .groundFloorCount ||
+            "",
+
+          지하층수:
+            analyzed
+              .undergroundFloorCount ||
+            "",
+
+          건축물대장조회:
+            analyzed
+              .buildingFloorLookupOk
+              ? "Y"
+              : "N",
+
+          건축물대장건물명:
+            analyzed
+              .buildingRegisterName ||
+            "",
+
+          건축물대장동명:
+            analyzed
+              .buildingRegisterDongName ||
+            "",
+
+          건축물대장PK:
+            analyzed
+              .buildingRegisterPk ||
+            "",
+
+          건축물대장조회사유:
+            analyzed
+              .buildingFloorLookupReason ||
+            "",
+
           상세주소원문:
             analyzed
               .detailAddressOriginal ||
@@ -631,14 +703,15 @@ app.post(
         });
 
         /*
-         * 주소 API 연속 호출 제한을 위한 대기
+         * 주소검색 API와 건축물대장 API가
+         * 함께 호출되므로 기존보다 약간 긴 간격을 적용합니다.
          */
         if (
           index <
           total - 1
         ) {
           await sleep(
-            120
+            180
           );
         }
       }
@@ -663,28 +736,43 @@ app.post(
           "주소분석결과"
         );
 
+      /*
+       * 열 너비 설정
+       *
+       * outputRows의 열 순서와 동일하게 설정합니다.
+       */
       outputSheet["!cols"] = [
-        { wch: 7 },
-        { wch: 14 },
-        { wch: 60 },
-        { wch: 10 },
-        { wch: 45 },
-        { wch: 55 },
-        { wch: 55 },
-        { wch: 14 },
-        { wch: 30 },
-        { wch: 28 },
-        { wch: 30 },
-        { wch: 35 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 30 },
-        { wch: 18 },
-        { wch: 20 },
-        { wch: 10 },
-        { wch: 50 },
-        { wch: 35 }
+        { wch: 7 },   // 순번
+        { wch: 14 },  // 입력우편번호
+        { wch: 60 },  // 입력주소
+        { wch: 10 },  // 처리성공
+        { wch: 45 },  // 기본주소
+        { wch: 55 },  // 도로명주소
+        { wch: 55 },  // 지번주소
+        { wch: 14 },  // API우편번호
+        { wch: 30 },  // 건물명
+        { wch: 28 },  // 건물관리번호
+
+        { wch: 26 },  // 전체층수
+        { wch: 12 },  // 지상층수
+        { wch: 12 },  // 지하층수
+        { wch: 18 },  // 건축물대장조회
+        { wch: 30 },  // 건축물대장건물명
+        { wch: 20 },  // 건축물대장동명
+        { wch: 32 },  // 건축물대장PK
+        { wch: 48 },  // 건축물대장조회사유
+
+        { wch: 30 },  // 상세주소원문
+        { wch: 35 },  // 상세주소정규화
+        { wch: 12 },  // 동
+        { wch: 12 },  // 층
+        { wch: 12 },  // 호
+        { wch: 30 },  // 기타정보
+        { wch: 18 },  // 상세주소유형
+        { wch: 20 },  // 상세주소상태
+        { wch: 10 },  // 신뢰도
+        { wch: 50 },  // 검색키워드
+        { wch: 40 }   // 실패사유
       ];
 
       /*
@@ -762,7 +850,8 @@ app.post(
       return res
         .status(500)
         .json({
-          ok: false,
+          ok:
+            false,
 
           reason:
             getErrorMessage(
@@ -785,7 +874,8 @@ app.use(
     return res
       .status(404)
       .json({
-        ok: false,
+        ok:
+          false,
 
         reason:
           "요청한 경로가 없습니다."
@@ -823,7 +913,8 @@ app.use(
     return res
       .status(400)
       .json({
-        ok: false,
+        ok:
+          false,
 
         reason:
           getErrorMessage(
@@ -843,6 +934,20 @@ app.listen(
   () => {
     console.log(
       `Detail address extractor running on port ${PORT}`
+    );
+
+    console.log(
+      "JUSO_CONFIRM_KEY:",
+      process.env.JUSO_CONFIRM_KEY
+        ? "설정됨"
+        : "미설정"
+    );
+
+    console.log(
+      "BUILDING_API_KEY:",
+      process.env.BUILDING_API_KEY
+        ? "설정됨"
+        : "미설정"
     );
   }
 );
