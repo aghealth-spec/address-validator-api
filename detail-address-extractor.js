@@ -9,6 +9,8 @@ import multer from "multer";
 import XLSX from "xlsx";
 import fs from "node:fs";
 import path from "node:path";
+import http from "node:http";
+import https from "node:https";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -33,10 +35,38 @@ const __dirname =
  * 환경변수
  * ======================================================= */
 
+function getSafeNumber(
+  value,
+  defaultValue,
+  min,
+  max
+) {
+  const parsed =
+    Number(value);
+
+  if (
+    !Number.isFinite(
+      parsed
+    )
+  ) {
+    return defaultValue;
+  }
+
+  return Math.max(
+    min,
+    Math.min(
+      parsed,
+      max
+    )
+  );
+}
+
 const PORT =
-  Number(
-    process.env.PORT ||
-    3000
+  getSafeNumber(
+    process.env.PORT,
+    3000,
+    1,
+    65535
   );
 
 const SERVER_API_BASE_URL =
@@ -47,6 +77,10 @@ const SERVER_API_BASE_URL =
   )
     .trim()
     .replace(
+      /^["']|["']$/g,
+      ""
+    )
+    .replace(
       /\/+$/,
       ""
     );
@@ -56,14 +90,104 @@ const SERVER_API_SECRET =
     process.env
       .SERVER_API_SECRET ||
     ""
-  ).trim();
+  )
+    .trim()
+    .replace(
+      /^["']|["']$/g,
+      ""
+    );
 
 const SERVER_API_TIMEOUT =
-  Number(
+  getSafeNumber(
     process.env
-      .SERVER_API_TIMEOUT ||
-    60000
+      .SERVER_API_TIMEOUT,
+    25000,
+    5000,
+    30000
   );
+
+const SERVER_EXPOS_ROWS_PER_PAGE =
+  getSafeNumber(
+    process.env
+      .SERVER_EXPOS_ROWS_PER_PAGE,
+    100,
+    10,
+    100
+  );
+
+const SERVER_EXPOS_MAX_PAGES =
+  getSafeNumber(
+    process.env
+      .SERVER_EXPOS_MAX_PAGES,
+    3,
+    1,
+    5
+  );
+
+const ROW_DELAY_MS =
+  getSafeNumber(
+    process.env
+      .ROW_DELAY_MS,
+    100,
+    0,
+    1000
+  );
+
+/* =========================================================
+ * HTTP Keep-Alive
+ * ======================================================= */
+
+const httpAgent =
+  new http.Agent({
+    keepAlive:
+      true,
+
+    maxSockets:
+      10,
+
+    maxFreeSockets:
+      5,
+
+    timeout:
+      SERVER_API_TIMEOUT
+  });
+
+const httpsAgent =
+  new https.Agent({
+    keepAlive:
+      true,
+
+    maxSockets:
+      10,
+
+    maxFreeSockets:
+      5,
+
+    timeout:
+      SERVER_API_TIMEOUT
+  });
+
+const buildingApiClient =
+  axios.create({
+    timeout:
+      SERVER_API_TIMEOUT,
+
+    httpAgent,
+
+    httpsAgent,
+
+    maxRedirects:
+      0,
+
+    validateStatus(
+      status
+    ) {
+      return (
+        status >= 200 &&
+        status < 300
+      );
+    }
+  });
 
 /* =========================================================
  * Express
@@ -78,10 +202,6 @@ const uploadDir =
     "uploads"
   );
 
-/* =========================================================
- * 업로드 폴더 생성
- * ======================================================= */
-
 fs.mkdirSync(
   uploadDir,
   {
@@ -91,7 +211,7 @@ fs.mkdirSync(
 );
 
 /* =========================================================
- * 업로드 설정
+ * Multer
  * ======================================================= */
 
 const upload =
@@ -109,14 +229,14 @@ const upload =
     fileFilter(
       req,
       file,
-      cb
+      callback
     ) {
-      const allowed = [
+      const allowedExtensions = [
         ".xlsx",
         ".xls"
       ];
 
-      const ext =
+      const extension =
         path
           .extname(
             file.originalname
@@ -124,18 +244,18 @@ const upload =
           .toLowerCase();
 
       if (
-        !allowed.includes(
-          ext
+        !allowedExtensions.includes(
+          extension
         )
       ) {
-        return cb(
+        return callback(
           new Error(
             "엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다."
           )
         );
       }
 
-      return cb(
+      return callback(
         null,
         true
       );
@@ -200,6 +320,33 @@ function safeDeleteFile(
   }
 }
 
+function sleep(
+  milliseconds
+) {
+  return new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        milliseconds
+      );
+    }
+  );
+}
+
+function getErrorMessage(
+  error
+) {
+  if (
+    error instanceof Error
+  ) {
+    return error.message;
+  }
+
+  return String(
+    error
+  );
+}
+
 function findColumnName(
   row,
   candidates
@@ -211,35 +358,24 @@ function findColumnName(
     );
 
   return keys.find(
-    (key) =>
-      candidates.some(
-        (candidate) =>
-          String(key)
-            .trim()
-            .toLowerCase() ===
-          String(candidate)
-            .trim()
-            .toLowerCase()
-      )
-  );
-}
+    (key) => {
+      const normalizedKey =
+        String(key)
+          .trim()
+          .toLowerCase();
 
-function sleep(ms) {
-  return new Promise(
-    (resolve) =>
-      setTimeout(
-        resolve,
-        ms
-      )
+      return candidates.some(
+        (candidate) => {
+          return (
+            normalizedKey ===
+            String(candidate)
+              .trim()
+              .toLowerCase()
+          );
+        }
+      );
+    }
   );
-}
-
-function getErrorMessage(
-  error
-) {
-  return error instanceof Error
-    ? error.message
-    : String(error);
 }
 
 function getAxiosErrorReason(
@@ -248,18 +384,56 @@ function getAxiosErrorReason(
   const status =
     error?.response?.status;
 
-  const data =
+  const responseData =
     error?.response?.data;
 
   if (
-    data &&
-    typeof data === "object"
+    error?.code ===
+    "ECONNABORTED"
+  ) {
+    return (
+      `건축물대장 API 응답 제한시간을 초과했습니다. ` +
+      `(${SERVER_API_TIMEOUT}ms)`
+    );
+  }
+
+  if (
+    error?.code ===
+    "ECONNRESET"
+  ) {
+    return (
+      "건축물대장 API 연결이 중간에 종료되었습니다."
+    );
+  }
+
+  if (
+    error?.code ===
+    "ENOTFOUND"
+  ) {
+    return (
+      "건축물대장 API 서버 도메인을 찾지 못했습니다."
+    );
+  }
+
+  if (
+    error?.code ===
+    "ECONNREFUSED"
+  ) {
+    return (
+      "건축물대장 API 서버가 연결을 거부했습니다."
+    );
+  }
+
+  if (
+    responseData &&
+    typeof responseData ===
+      "object"
   ) {
     const reason =
-      data.reason ||
-      data.message ||
-      data.error ||
-      data.detail;
+      responseData.reason ||
+      responseData.message ||
+      responseData.error ||
+      responseData.detail;
 
     if (reason) {
       return status
@@ -268,24 +442,26 @@ function getAxiosErrorReason(
     }
 
     try {
+      const serialized =
+        JSON.stringify(
+          responseData
+        );
+
       return status
-        ? `API 오류(${status}): ${JSON.stringify(
-            data
-          )}`
-        : JSON.stringify(
-            data
-          );
+        ? `API 오류(${status}): ${serialized}`
+        : serialized;
     } catch {
-      // 무시
+      // JSON 변환 실패 시 아래 기본 메시지 사용
     }
   }
 
   if (
-    typeof data === "string" &&
-    data.trim()
+    typeof responseData ===
+      "string" &&
+    responseData.trim()
   ) {
-    const clean =
-      data
+    const cleanText =
+      responseData
         .replace(
           /<[^>]+>/gu,
           " "
@@ -297,8 +473,8 @@ function getAxiosErrorReason(
         .trim();
 
     return status
-      ? `API 오류(${status}): ${clean}`
-      : clean;
+      ? `API 오류(${status}): ${cleanText}`
+      : cleanText;
   }
 
   const message =
@@ -316,22 +492,21 @@ function makeDownloadFileName() {
     new Date();
 
   const pad =
-    (value) =>
-      String(value)
+    (value) => {
+      return String(value)
         .padStart(
           2,
           "0"
         );
+    };
 
   const dateText =
     [
       now.getFullYear(),
-
       pad(
         now.getMonth() +
         1
       ),
-
       pad(
         now.getDate()
       )
@@ -342,11 +517,9 @@ function makeDownloadFileName() {
       pad(
         now.getHours()
       ),
-
       pad(
         now.getMinutes()
       ),
-
       pad(
         now.getSeconds()
       )
@@ -405,17 +578,13 @@ function makeEmptyBuildingResult(
 }
 
 /* =========================================================
- * server.js 호출용 데이터 생성
+ * 건축물대장 API payload 생성
  * ======================================================= */
 
 function makeBuildingApiPayload(
   addressResult,
   orderNo
 ) {
-  /*
-   * 새 addressAnalyzer.js가 반환하는
-   * juso/detail 객체를 우선 사용합니다.
-   */
   const juso =
     addressResult?.juso ||
     {
@@ -427,6 +596,11 @@ function makeBuildingApiPayload(
       roadAddrPart1:
         addressResult
           ?.baseAddress ||
+        "",
+
+      roadAddrPart2:
+        addressResult
+          ?.roadAddrPart2 ||
         "",
 
       jibunAddr:
@@ -507,8 +681,39 @@ function makeBuildingApiPayload(
       emdNm:
         addressResult
           ?.emdNm ||
+        "",
+
+      liNm:
+        addressResult
+          ?.liNm ||
+        "",
+
+      rn:
+        addressResult
+          ?.rn ||
         ""
     };
+
+  const fallbackDong =
+    String(
+      addressResult
+        ?.dong ||
+      ""
+    );
+
+  const fallbackHo =
+    String(
+      addressResult
+        ?.ho ||
+      ""
+    );
+
+  const fallbackFloor =
+    String(
+      addressResult
+        ?.floor ||
+      ""
+    );
 
   const detail =
     addressResult?.detail ||
@@ -529,26 +734,16 @@ function makeBuildingApiPayload(
         "",
 
       dongRaw:
-        addressResult
-          ?.dong ||
-        "",
+        fallbackDong,
 
       floorRaw:
-        addressResult
-          ?.floor ||
-        "",
+        fallbackFloor,
 
       hoRaw:
-        addressResult
-          ?.ho ||
-        "",
+        fallbackHo,
 
       targetDong:
-        String(
-          addressResult
-            ?.dong ||
-          ""
-        )
+        fallbackDong
           .replace(
             /^제/u,
             ""
@@ -564,11 +759,7 @@ function makeBuildingApiPayload(
           .toLowerCase(),
 
       targetHo:
-        String(
-          addressResult
-            ?.ho ||
-          ""
-        )
+        fallbackHo
           .replace(
             /^제/u,
             ""
@@ -584,19 +775,14 @@ function makeBuildingApiPayload(
           .toLowerCase(),
 
       floorType:
-        String(
-          addressResult
-            ?.floor ||
-          ""
-        ).includes(
+        fallbackFloor.includes(
           "지하"
         )
           ? "UNDERGROUND"
           : (
-              addressResult
-                ?.floor
-              ? "GROUND"
-              : ""
+              fallbackFloor
+                ? "GROUND"
+                : ""
             ),
 
       inputFloor:
@@ -625,12 +811,30 @@ function makeBuildingApiPayload(
 
     juso,
 
-    detail
+    detail,
+
+    options: {
+      exposRowsPerPage:
+        SERVER_EXPOS_ROWS_PER_PAGE,
+
+      exposMaxPages:
+        SERVER_EXPOS_MAX_PAGES
+    },
+
+    /*
+     * server.js가 options 안이 아닌 최상위 값을 읽는 경우도
+     * 호환되도록 두 위치에 모두 전달합니다.
+     */
+    exposRowsPerPage:
+      SERVER_EXPOS_ROWS_PER_PAGE,
+
+    exposMaxPages:
+      SERVER_EXPOS_MAX_PAGES
   };
 }
 
 /* =========================================================
- * server.js 건축물대장 API 호출
+ * 건축물대장 API 호출
  * ======================================================= */
 
 async function requestBuildingAnalysis(
@@ -651,6 +855,9 @@ async function requestBuildingAnalysis(
     );
   }
 
+  const requestUrl =
+    `${SERVER_API_BASE_URL}/api/building/analyze`;
+
   const payload =
     makeBuildingApiPayload(
       addressResult,
@@ -669,29 +876,29 @@ async function requestBuildingAnalysis(
       SERVER_API_SECRET;
   }
 
+  const startedAt =
+    Date.now();
+
   try {
     const response =
-      await axios.post(
-        `${SERVER_API_BASE_URL}/api/building/analyze`,
-
+      await buildingApiClient.post(
+        requestUrl,
         payload,
-
         {
           headers,
 
           timeout:
-            SERVER_API_TIMEOUT,
-
-          validateStatus(
-            status
-          ) {
-            return (
-              status >= 200 &&
-              status < 300
-            );
-          }
+            SERVER_API_TIMEOUT
         }
       );
+
+    const elapsed =
+      Date.now() -
+      startedAt;
+
+    console.log(
+      `[건축물대장 완료] 주문번호: ${orderNo} / ${elapsed}ms`
+    );
 
     const data =
       response.data ||
@@ -699,7 +906,6 @@ async function requestBuildingAnalysis(
 
     return {
       ...makeEmptyBuildingResult(),
-
       ...data,
 
       ok:
@@ -776,7 +982,8 @@ async function requestBuildingAnalysis(
         data
           .validationStatus ||
         data
-          .exposMatch?.status ||
+          .exposMatch
+          ?.status ||
         "",
 
       buildingValidationReason:
@@ -785,10 +992,15 @@ async function requestBuildingAnalysis(
         data
           .validationReason ||
         data
-          .exposMatch?.reason ||
+          .exposMatch
+          ?.reason ||
         ""
     };
   } catch (error) {
+    const elapsed =
+      Date.now() -
+      startedAt;
+
     const reason =
       getAxiosErrorReason(
         error
@@ -798,13 +1010,20 @@ async function requestBuildingAnalysis(
       "server.js 건축물대장 API 호출 실패:",
       {
         url:
-          `${SERVER_API_BASE_URL}/api/building/analyze`,
+          requestUrl,
 
         orderNo,
 
         address:
           addressResult
             ?.baseAddress ||
+          "",
+
+        elapsed:
+          `${elapsed}ms`,
+
+        code:
+          error?.code ||
           "",
 
         reason
@@ -818,7 +1037,7 @@ async function requestBuildingAnalysis(
 }
 
 /* =========================================================
- * 주소 분석 + 건축물대장 조회
+ * 주소 분석 + 건축물대장 분석
  * ======================================================= */
 
 async function analyzeAddressWithBuilding(
@@ -846,10 +1065,11 @@ async function analyzeAddressWithBuilding(
     };
   }
 
-  let buildingResult =
-    makeEmptyBuildingResult();
+  let buildingResult;
 
-  if (addressResult.ok) {
+  if (
+    addressResult?.ok
+  ) {
     buildingResult =
       await requestBuildingAnalysis(
         addressResult,
@@ -872,7 +1092,7 @@ async function analyzeAddressWithBuilding(
 }
 
 /* =========================================================
- * 상태 확인
+ * 서비스 상태 확인
  * ======================================================= */
 
 app.get(
@@ -887,10 +1107,16 @@ app.get(
     let serverApiStatus =
       "";
 
+    let serverApiResponseTime =
+      null;
+
     if (SERVER_API_BASE_URL) {
+      const startedAt =
+        Date.now();
+
       try {
         const response =
-          await axios.get(
+          await buildingApiClient.get(
             `${SERVER_API_BASE_URL}/api/health`,
             {
               timeout:
@@ -906,15 +1132,25 @@ app.get(
             }
           );
 
+        serverApiResponseTime =
+          Date.now() -
+          startedAt;
+
         serverApiReachable =
           response.status >= 200 &&
           response.status < 300;
 
         serverApiStatus =
-          response.data?.service ||
-          response.data?.status ||
+          response.data
+            ?.service ||
+          response.data
+            ?.status ||
           "응답 정상";
       } catch (error) {
+        serverApiResponseTime =
+          Date.now() -
+          startedAt;
+
         serverApiStatus =
           getAxiosErrorReason(
             error
@@ -949,6 +1185,20 @@ app.get(
 
       serverApiStatus,
 
+      serverApiResponseTime,
+
+      serverApiTimeout:
+        SERVER_API_TIMEOUT,
+
+      serverExposRowsPerPage:
+        SERVER_EXPOS_ROWS_PER_PAGE,
+
+      serverExposMaxPages:
+        SERVER_EXPOS_MAX_PAGES,
+
+      rowDelayMs:
+        ROW_DELAY_MS,
+
       timestamp:
         new Date()
           .toISOString()
@@ -958,8 +1208,6 @@ app.get(
 
 /* =========================================================
  * 주소 1건 분석
- *
- * 주소 정제 후 server.js까지 호출한 통합 결과입니다.
  * ======================================================= */
 
 app.post(
@@ -996,7 +1244,8 @@ app.post(
 
       return res.json({
         ok:
-          result.address.ok,
+          result.address
+            ?.ok === true,
 
         address:
           result.address,
@@ -1006,6 +1255,7 @@ app.post(
       });
     } catch (error) {
       console.error(
+        "주소 1건 분석 오류:",
         error
       );
 
@@ -1042,8 +1292,28 @@ app.post(
     let uploadedPath =
       "";
 
-    let outputPath =
-      "";
+    let clientDisconnected =
+      false;
+
+    /*
+     * req.close는 정상적인 요청 본문 수신 후에도 발생할 수 있으므로
+     * 여기서는 res의 close 상태를 기준으로 확인합니다.
+     */
+    res.on(
+      "close",
+      () => {
+        if (
+          !res.writableEnded
+        ) {
+          clientDisconnected =
+            true;
+
+          console.warn(
+            "클라이언트 연결이 결과 전송 전에 종료되었습니다."
+          );
+        }
+      }
+    );
 
     try {
       if (!req.file) {
@@ -1061,10 +1331,6 @@ app.post(
       uploadedPath =
         req.file.path;
 
-      /*
-       * Railway 및 ES module 환경에서
-       * readFile 대신 버퍼 방식으로 읽기
-       */
       const inputBuffer =
         fs.readFileSync(
           uploadedPath
@@ -1092,6 +1358,10 @@ app.post(
         workbook.SheetNames
           .length === 0
       ) {
+        safeDeleteFile(
+          uploadedPath
+        );
+
         return res
           .status(400)
           .json({
@@ -1114,6 +1384,10 @@ app.post(
           ];
 
       if (!sheet) {
+        safeDeleteFile(
+          uploadedPath
+        );
+
         return res
           .status(400)
           .json({
@@ -1141,6 +1415,10 @@ app.post(
       if (
         rows.length === 0
       ) {
+        safeDeleteFile(
+          uploadedPath
+        );
+
         return res
           .status(400)
           .json({
@@ -1186,6 +1464,10 @@ app.post(
         );
 
       if (!addressColumn) {
+        safeDeleteFile(
+          uploadedPath
+        );
+
         return res
           .status(400)
           .json({
@@ -1197,17 +1479,33 @@ app.post(
           });
       }
 
-      const outputRows =
-        [];
+      const outputRows = [];
 
       const total =
         rows.length;
+
+      const processingStartedAt =
+        Date.now();
+
+      console.log(
+        `[엑셀 분석 시작] 총 ${total}건`
+      );
 
       for (
         let index = 0;
         index < total;
         index += 1
       ) {
+        if (
+          clientDisconnected
+        ) {
+          console.warn(
+            `[엑셀 처리 중단] ${index}/${total}건 처리 후 연결 종료`
+          );
+
+          break;
+        }
+
         const row =
           rows[index];
 
@@ -1241,6 +1539,19 @@ app.post(
                 index + 1
               );
 
+        const currentOrderNo =
+          inputOrderNo ||
+          String(
+            index + 1
+          );
+
+        console.log(
+          `[주소 분석] ${index + 1}/${total} / 주문번호: ${currentOrderNo}`
+        );
+
+        const rowStartedAt =
+          Date.now();
+
         let result;
 
         if (!inputAddress) {
@@ -1262,10 +1573,7 @@ app.post(
           result =
             await analyzeAddressWithBuilding(
               inputAddress,
-              inputOrderNo ||
-              String(
-                index + 1
-              )
+              currentOrderNo
             );
         }
 
@@ -1470,23 +1778,54 @@ app.post(
             ""
         });
 
-        /*
-         * Juso API와 server.js API가 연속 호출되므로
-         * 각 행 사이에 짧은 대기시간을 둡니다.
-         */
+        console.log(
+          `[주소 완료] ${index + 1}/${total} / ${Date.now() - rowStartedAt}ms`
+        );
+
         if (
           index <
-          total - 1
+            total - 1 &&
+          ROW_DELAY_MS >
+            0
         ) {
           await sleep(
-            180
+            ROW_DELAY_MS
           );
         }
       }
 
-      /*
+      safeDeleteFile(
+        uploadedPath
+      );
+
+      uploadedPath =
+        "";
+
+      if (
+        clientDisconnected
+      ) {
+        return;
+      }
+
+      if (
+        outputRows.length ===
+        0
+      ) {
+        return res
+          .status(499)
+          .json({
+            ok:
+              false,
+
+            reason:
+              "클라이언트 연결 종료로 처리가 중단되었습니다."
+          });
+      }
+
+      /* =====================================================
        * 결과 엑셀 생성
-       */
+       * =================================================== */
+
       const outputSheet =
         XLSX.utils
           .json_to_sheet(
@@ -1504,51 +1843,45 @@ app.post(
           "주소분석결과"
         );
 
-      /*
-       * 열 너비
-       */
       outputSheet["!cols"] = [
-        { wch: 7 },   // 순번
-        { wch: 22 },  // 주문번호
-        { wch: 14 },  // 입력우편번호
-        { wch: 60 },  // 입력주소
-        { wch: 14 },  // 주소처리성공
-        { wch: 45 },  // 기본주소
-        { wch: 55 },  // 도로명주소
-        { wch: 55 },  // 지번주소
-        { wch: 14 },  // API우편번호
-        { wch: 30 },  // 건물명
-        { wch: 28 },  // 건물관리번호
+        { wch: 7 },
+        { wch: 22 },
+        { wch: 14 },
+        { wch: 60 },
+        { wch: 14 },
+        { wch: 45 },
+        { wch: 55 },
+        { wch: 55 },
+        { wch: 14 },
+        { wch: 30 },
+        { wch: 28 },
 
-        { wch: 26 },  // 전체층수
-        { wch: 12 },  // 지상층수
-        { wch: 12 },  // 지하층수
-        { wch: 18 },  // 건축물대장조회
-        { wch: 30 },  // 건축물대장건물명
-        { wch: 20 },  // 건축물대장동명
-        { wch: 32 },  // 건축물대장PK
-        { wch: 24 },  // 건축물대장유형
-        { wch: 28 },  // 건축물조회방식
-        { wch: 28 },  // 동호검증상태
-        { wch: 45 },  // 동호검증사유
-        { wch: 55 },  // 건축물대장조회사유
+        { wch: 26 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 18 },
+        { wch: 30 },
+        { wch: 20 },
+        { wch: 32 },
+        { wch: 24 },
+        { wch: 28 },
+        { wch: 28 },
+        { wch: 45 },
+        { wch: 55 },
 
-        { wch: 30 },  // 상세주소원문
-        { wch: 35 },  // 상세주소정규화
-        { wch: 12 },  // 동
-        { wch: 12 },  // 층
-        { wch: 12 },  // 호
-        { wch: 30 },  // 기타정보
-        { wch: 22 },  // 상세주소유형
-        { wch: 22 },  // 상세주소상태
-        { wch: 10 },  // 신뢰도
-        { wch: 50 },  // 검색키워드
-        { wch: 50 }   // 주소분석실패사유
+        { wch: 30 },
+        { wch: 35 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 30 },
+        { wch: 22 },
+        { wch: 22 },
+        { wch: 10 },
+        { wch: 50 },
+        { wch: 50 }
       ];
 
-      /*
-       * 버퍼 방식으로 저장
-       */
       const outputBuffer =
         XLSX.write(
           outputWorkbook,
@@ -1561,50 +1894,71 @@ app.post(
           }
         );
 
-      const outputFileName =
-        `address-result-${Date.now()}.xlsx`;
-
-      outputPath =
-        path.join(
-          uploadDir,
-          outputFileName
-        );
-
-      fs.writeFileSync(
-        outputPath,
-        outputBuffer
-      );
-
       const downloadName =
         makeDownloadFileName();
 
-      return res.download(
-        outputPath,
-        downloadName,
-        (error) => {
-          safeDeleteFile(
-            outputPath
+      const encodedDownloadName =
+        encodeURIComponent(
+          downloadName
+        )
+          .replace(
+            /['()]/g,
+            escape
+          )
+          .replace(
+            /\*/g,
+            "%2A"
           );
 
-          safeDeleteFile(
-            uploadedPath
-          );
-
-          if (error) {
-            console.error(
-              "다운로드 오류:",
-              error
-            );
-          }
-        }
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="address-result.xlsx"; filename*=UTF-8''${encodedDownloadName}`
+      );
+
+      res.setHeader(
+        "Content-Length",
+        String(
+          outputBuffer.length
+        )
+      );
+
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate"
+      );
+
+      res.setHeader(
+        "Pragma",
+        "no-cache"
+      );
+
+      res.setHeader(
+        "Expires",
+        "0"
+      );
+
+      const totalElapsed =
+        Date.now() -
+        processingStartedAt;
+
+      console.log(
+        `[엑셀 완료] 총 ${outputRows.length}건 / ${totalElapsed}ms / ${outputBuffer.length} bytes`
+      );
+
+      return res
+        .status(200)
+        .send(
+          outputBuffer
+        );
     } catch (error) {
       console.error(
+        "엑셀 분석 오류:",
         error
-      );
-
-      safeDeleteFile(
-        outputPath
       );
 
       safeDeleteFile(
@@ -1612,7 +1966,8 @@ app.post(
       );
 
       if (
-        res.headersSent
+        res.headersSent ||
+        clientDisconnected
       ) {
         return;
       }
@@ -1665,6 +2020,7 @@ app.use(
     next
   ) => {
     console.error(
+      "Express 오류:",
       error
     );
 
@@ -1678,6 +2034,36 @@ app.use(
       return next(
         error
       );
+    }
+
+    if (
+      error instanceof
+      multer.MulterError
+    ) {
+      if (
+        error.code ===
+        "LIMIT_FILE_SIZE"
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok:
+              false,
+
+            reason:
+              "업로드 파일은 최대 20MB까지 가능합니다."
+          });
+      }
+
+      return res
+        .status(400)
+        .json({
+          ok:
+            false,
+
+          reason:
+            `파일 업로드 오류: ${error.message}`
+        });
     }
 
     return res
@@ -1695,37 +2081,101 @@ app.use(
 );
 
 /* =========================================================
- * 서버 실행
+ * 프로세스 오류
  * ======================================================= */
 
-app.listen(
-  PORT,
-  "0.0.0.0",
-  () => {
-    console.log(
-      `Detail address extractor running on port ${PORT}`
-    );
-
-    console.log(
-      "JUSO_CONFIRM_KEY:",
-      process.env
-        .JUSO_CONFIRM_KEY
-        ? "설정됨"
-        : "미설정"
-    );
-
-    console.log(
-      "SERVER_API_BASE_URL:",
-      SERVER_API_BASE_URL
-        ? SERVER_API_BASE_URL
-        : "미설정"
-    );
-
-    console.log(
-      "SERVER_API_SECRET:",
-      SERVER_API_SECRET
-        ? "설정됨"
-        : "미설정"
+process.on(
+  "unhandledRejection",
+  (reason) => {
+    console.error(
+      "처리되지 않은 Promise 오류:",
+      reason
     );
   }
 );
+
+process.on(
+  "uncaughtException",
+  (error) => {
+    console.error(
+      "처리되지 않은 예외:",
+      error
+    );
+  }
+);
+
+/* =========================================================
+ * 서버 실행
+ * ======================================================= */
+
+const server =
+  app.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
+      console.log(
+        `Detail address extractor running on port ${PORT}`
+      );
+
+      console.log(
+        "JUSO_CONFIRM_KEY:",
+        process.env
+          .JUSO_CONFIRM_KEY
+          ? "설정됨"
+          : "미설정"
+      );
+
+      console.log(
+        "SERVER_API_BASE_URL:",
+        SERVER_API_BASE_URL ||
+        "미설정"
+      );
+
+      console.log(
+        "SERVER_API_SECRET:",
+        SERVER_API_SECRET
+          ? "설정됨"
+          : "미설정"
+      );
+
+      console.log(
+        "SERVER_API_TIMEOUT:",
+        `${SERVER_API_TIMEOUT}ms`
+      );
+
+      console.log(
+        "SERVER_EXPOS_ROWS_PER_PAGE:",
+        SERVER_EXPOS_ROWS_PER_PAGE
+      );
+
+      console.log(
+        "SERVER_EXPOS_MAX_PAGES:",
+        SERVER_EXPOS_MAX_PAGES
+      );
+
+      console.log(
+        "ROW_DELAY_MS:",
+        `${ROW_DELAY_MS}ms`
+      );
+    }
+  );
+
+/*
+ * 엑셀 처리 요청이 길어질 수 있으므로 Node 서버 자체의
+ * 요청 제한시간은 충분히 길게 둡니다.
+ *
+ * 단, Railway 외부 프록시 제한은 별도이므로 대량 데이터에서는
+ * 작업 큐 구조가 더 안정적입니다.
+ */
+server.requestTimeout =
+  10 *
+  60 *
+  1000;
+
+server.headersTimeout =
+  65 *
+  1000;
+
+server.keepAliveTimeout =
+  60 *
+  1000;
