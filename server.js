@@ -282,14 +282,24 @@ function normalizeHoName(value) {
     .trim()
     .toLowerCase();
 
-  text = text
-    .replace(/^제/, "")
-    .replace(/호$/, "");
+  // 제505호 → 505호
+  text = text.replace(/^제/, "");
 
   /*
-   * 숫자 호수에만 앞자리 0 제거
-   * 0505호 → 505
+   * 건축물대장 전유부 호명칭 예:
+   * 5층505호   → 505호
+   * 10층1001호 → 1001호
+   * 지하1층B101호 → B101호
    */
+  text = text.replace(
+    /^(?:지하\s*\d+층|\d+층)/,
+    ""
+  );
+
+  // 마지막 '호' 제거
+  text = text.replace(/호$/, "");
+
+  // 숫자 호수 앞자리 0 제거
   if (/^\d+$/.test(text)) {
     text = text.replace(
       /^0+(?=\d)/,
