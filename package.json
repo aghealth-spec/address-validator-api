@@ -1,11 +1,20 @@
 {
-  "name": "address-validator-api",
+  "name": "address-analysis-services",
   "version": "1.0.0",
-  "main": "server.js",
+  "private": true,
   "type": "module",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "start:extractor": "node detail-address-extractor.js"
+    "start:server": "node server.js",
+    "start:extractor": "node detail-address-extractor.js",
+    "check:server": "node --check server.js",
+    "check:extractor": "node --check detail-address-extractor.js",
+    "check:analyzer": "node --check addressAnalyzer.js",
+    "check": "npm run check:server && npm run check:extractor && npm run check:analyzer"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "axios": "^1.18.1",
