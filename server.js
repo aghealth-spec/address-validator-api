@@ -3502,13 +3502,31 @@ app.post(
               req.body?.includeAllExpos ===
               true,
 
-            exposRowsPerPage:
-              req.body?.exposRowsPerPage ||
-              100,
-
-            exposMaxPages:
-              req.body?.exposMaxPages ||
-              3
+          exposRowsPerPage:
+            Math.min(
+              Math.max(
+                Number(
+                  req.body
+                    ?.exposRowsPerPage ||
+                  100
+                ),
+                10
+              ),
+              100
+            ),
+          
+          exposMaxPages:
+            Math.min(
+              Math.max(
+                Number(
+                  req.body
+                    ?.exposMaxPages ||
+                  3
+                ),
+                1
+              ),
+              5
+            )
           }
         );
 
@@ -3607,12 +3625,30 @@ app.post(
                   false,
 
                 exposRowsPerPage:
-                  req.body?.exposRowsPerPage ||
-                  100,
-
+                  Math.min(
+                    Math.max(
+                      Number(
+                        req.body
+                          ?.exposRowsPerPage ||
+                        100
+                      ),
+                      10
+                    ),
+                    100
+                  ),
+                
                 exposMaxPages:
-                  req.body?.exposMaxPages ||
-                  3
+                  Math.min(
+                    Math.max(
+                      Number(
+                        req.body
+                          ?.exposMaxPages ||
+                        3
+                      ),
+                      1
+                    ),
+                    5
+                  )
               }
             );
 
