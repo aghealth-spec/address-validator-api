@@ -852,9 +852,15 @@ async function fetchAllBuildingHubItems(
     );
 
   const maxPages =
-    Number(
-      options.maxPages ||
-      30
+    Math.min(
+      Math.max(
+        Number(
+          options.maxPages ||
+          3
+        ),
+        1
+      ),
+      5
     );
 
   const first =
@@ -1162,17 +1168,29 @@ async function searchExposWithFallback(
           params,
           {
             numOfRows:
-              Number(
-                options
-                  .exposRowsPerPage ||
+              Math.min(
+                Math.max(
+                  Number(
+                    options
+                      .exposRowsPerPage ||
+                    100
+                  ),
+                  10
+                ),
                 100
               ),
-
+            
             maxPages:
-              Number(
-                options
-                  .exposMaxPages ||
-                3
+              Math.min(
+                Math.max(
+                  Number(
+                    options
+                      .exposMaxPages ||
+                    3
+                  ),
+                  1
+                ),
+                5
               )
           }
         );
@@ -2997,19 +3015,85 @@ async function analyzeOneBuilding(
       )
   };
 
-  const exposRawResult =
-    await searchExposWithFallback(
-      juso,
-      titleRawResult.matchedParams,
-      {
-        exposRowsPerPage:
-          options.exposRowsPerPage,
-
-        exposMaxPages:
-          options.exposMaxPages
-      }
+  const shouldSearchExpos =
+    Boolean(
+      detail.targetDong ||
+      detail.targetHo
     );
-
+  
+  let exposRawResult;
+  
+  if (shouldSearchExpos) {
+    exposRawResult =
+      await searchExposWithFallback(
+        juso,
+        titleRawResult.matchedParams,
+        {
+          exposRowsPerPage:
+            Math.min(
+              Math.max(
+                Number(
+                  options.exposRowsPerPage ||
+                  100
+                ),
+                10
+              ),
+              100
+            ),
+  
+          exposMaxPages:
+            Math.min(
+              Math.max(
+                Number(
+                  options.exposMaxPages ||
+                  3
+                ),
+                1
+              ),
+              5
+            )
+        }
+      );
+  } else {
+    exposRawResult = {
+      matched:
+        false,
+  
+      operation:
+        "getBrExposInfo",
+  
+      lookupSource:
+        "SKIPPED_NO_DONG_OR_UNIT",
+  
+      matchedParams:
+        null,
+  
+      attempts:
+        [],
+  
+      resultCode:
+        "",
+  
+      resultMessage:
+        "",
+  
+      totalCount:
+        0,
+  
+      loadedCount:
+        0,
+  
+      pageCount:
+        0,
+  
+      truncated:
+        false,
+  
+      items:
+        []
+    };
+  }
+  
   const exposCandidates =
     exposRawResult.items.map(
       mapExposCandidate
