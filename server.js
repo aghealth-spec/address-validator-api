@@ -310,6 +310,37 @@ function normalizeHoName(value) {
   return text;
 }
 
+function extractFloorFromHoName(value) {
+  const text = String(value ?? "")
+    .replace(/\s+/g, "")
+    .trim();
+
+  let match = text.match(
+    /^지하(\d+)층/
+  );
+
+  if (match) {
+    return {
+      floorType: "UNDERGROUND",
+      floorNumber: Number(match[1])
+    };
+  }
+
+  match = text.match(/^(\d+)층/);
+
+  if (match) {
+    return {
+      floorType: "GROUND",
+      floorNumber: Number(match[1])
+    };
+  }
+
+  return {
+    floorType: "",
+    floorNumber: null
+  };
+}
+
 /* =========================================================
  * 상세주소 파싱
  * ======================================================= */
@@ -1097,10 +1128,6 @@ function pickFirstValue(
 }
 
 function mapExposCandidate(item) {
-  /*
-   * 건축HUB 응답 필드 차이를 고려해
-   * 일부 대체 필드도 함께 검사합니다.
-   */
   const dongName = pickFirstValue(
     item,
     [
@@ -1119,7 +1146,7 @@ function mapExposCandidate(item) {
     ]
   );
 
-  const floorNumber = toNumberOrNull(
+  const rawFloorNumber = toNumberOrNull(
     pickFirstValue(
       item,
       [
@@ -1129,19 +1156,38 @@ function mapExposCandidate(item) {
     )
   );
 
-  const floorName = String(
-    pickFirstValue(
-      item,
-      [
-        "flrNoNm",
-        "flrGbCdNm",
-        "floorNm"
-      ]
-    ) || ""
-  );
+  const parsedFloor =
+    extractFloorFromHoName(hoName);
+
+  /*
+   * 건축물대장에서 flrNo가 0인 경우
+   * hoNm의 "5층505호"에서 실제 층을 추출합니다.
+   */
+  const floorNumber =
+    rawFloorNumber !== null &&
+    rawFloorNumber !== 0
+      ? rawFloorNumber
+      : parsedFloor.floorNumber;
+
+  const floorType =
+    parsedFloor.floorType ||
+    (
+      String(item?.flrGbCdNm || "")
+        .includes("지하")
+        ? "UNDERGROUND"
+        : String(item?.flrGbCdNm || "")
+            .includes("지상")
+          ? "GROUND"
+          : ""
+    );
 
   return {
-    buildingPk: String(
+    /*
+     * 주의:
+     * 전유부의 mgmBldrgstPk는 전유부 레코드 PK일 수 있으므로
+     * 표제부 PK와 동일하다고 가정하면 안 됩니다.
+     */
+    exposPk: String(
       item?.mgmBldrgstPk || ""
     ),
 
@@ -1170,8 +1216,8 @@ function mapExposCandidate(item) {
     floorTypeName:
       item?.flrGbCdNm || "",
 
+    floorType,
     floorNumber,
-    floorName,
 
     mainPurpose:
       item?.mainPurpsCdNm || "",
