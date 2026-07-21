@@ -3167,6 +3167,10 @@ function selectMatchedTitle(
    * 6. 표제부 최종 선택
    */
 
+/* =========================================================
+ * 표제부 선택 보조 함수
+ * ======================================================= */
+  
 function normalizeRoadAddressForCompare(value) {
   return String(value ?? "")
     .replace(/\([^)]*\)/g, "")
