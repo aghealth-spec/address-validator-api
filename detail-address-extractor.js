@@ -5,7 +5,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import multer from "multer";
-import * as XLSX from "xlsx";
+import XLSX from "xlsx";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
