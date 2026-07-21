@@ -4,11 +4,15 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:extractor": "node detail-address-extractor.js"
   },
   "dependencies": {
+    "axios": "^1.18.1",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.18.3"
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
+    "multer": "^2.0.2",
+    "xlsx": "^0.18.5"
   }
 }
