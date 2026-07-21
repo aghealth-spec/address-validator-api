@@ -1846,7 +1846,7 @@ function selectMatchedTitle(
 ) {
   /*
    * 1순위:
-   * 전유부 일치 동명으로 표제부 선택
+   * 전유부에서 동·호가 일치한 동명으로 표제부 선택
    */
   const matchedDongNames =
     new Set(
@@ -1914,9 +1914,132 @@ function selectMatchedTitle(
 
   /*
    * 3순위:
-   * Juso 건물명과 표제부 건물명 일치
+   * Juso 도로명주소와 표제부 도로명주소 정확 비교
    *
-   * 트레이드타워처럼 동명이 없는 업무시설용
+   * 대형 복합대지에서는 동일 지번에 건물이 여러 개 있으므로
+   * 건물명보다 도로명주소 일치를 우선합니다.
+   */
+  const jusoRoadAddress =
+    normalizeRoadAddressForCompare(
+      juso?.roadAddrPart1 ||
+      juso?.roadAddr ||
+      ""
+    );
+
+  if (jusoRoadAddress) {
+    const roadAddressMatches =
+      titleCandidates.filter(
+        (candidate) => {
+          const candidateRoadAddress =
+            normalizeRoadAddressForCompare(
+              candidate.roadAddress
+            );
+
+          return (
+            candidateRoadAddress &&
+            candidateRoadAddress ===
+              jusoRoadAddress
+          );
+        }
+      );
+
+    /*
+     * 도로명주소가 하나만 일치하면 바로 선택
+     */
+    if (
+      roadAddressMatches.length === 1
+    ) {
+      return {
+        source:
+          "ROAD_ADDRESS_EXACT_MATCH",
+
+        selected:
+          roadAddressMatches[0],
+
+        candidates:
+          roadAddressMatches
+      };
+    }
+
+    /*
+     * 같은 도로명주소 후보가 여러 개라면
+     * 건물명·용도·층수 점수로 선택
+     */
+    if (
+      roadAddressMatches.length > 1
+    ) {
+      const scoredMatches =
+        roadAddressMatches
+          .map((candidate) => ({
+            candidate,
+
+            score:
+              calculateTitleCandidateScore(
+                candidate,
+                juso,
+                detail
+              )
+          }))
+          .sort(
+            (a, b) =>
+              b.score - a.score
+          );
+
+      if (
+        scoredMatches.length > 0 &&
+        scoredMatches[0].score >
+          scoredMatches[1]?.score
+      ) {
+        return {
+          source:
+            "ROAD_ADDRESS_SCORED_MATCH",
+
+          selected:
+            scoredMatches[0]
+              .candidate,
+
+          candidates:
+            roadAddressMatches,
+
+          scores:
+            scoredMatches.map(
+              (item) => ({
+                buildingPk:
+                  item.candidate
+                    .buildingPk,
+
+                buildingName:
+                  item.candidate
+                    .buildingName,
+
+                dongName:
+                  item.candidate
+                    .dongName,
+
+                score:
+                  item.score
+              })
+            )
+        };
+      }
+
+      return {
+        source:
+          "ROAD_ADDRESS_MULTIPLE_MATCH",
+
+        selected: null,
+
+        candidates:
+          roadAddressMatches
+      };
+    }
+  }
+
+  /*
+   * 4순위:
+   * Juso 건물명과 표제부 건물명 비교
+   *
+   * 빈 문자열은 절대 비교하지 않습니다.
    */
   const jusoBuildingName =
     normalizeCompareText(
@@ -1931,6 +2054,14 @@ function selectMatchedTitle(
             normalizeCompareText(
               candidate.buildingName
             );
+
+          /*
+           * 핵심 수정:
+           * 후보 건물명이 빈 문자열이면 제외
+           */
+          if (!candidateName) {
+            return false;
+          }
 
           return (
             candidateName ===
@@ -1976,8 +2107,8 @@ function selectMatchedTitle(
   }
 
   /*
-   * 4순위:
-   * 표제부 단일 후보
+   * 5순위:
+   * 표제부 후보가 하나뿐일 경우
    */
   if (titleCandidates.length === 1) {
     return {
@@ -1993,7 +2124,7 @@ function selectMatchedTitle(
   }
 
   /*
-   * 5순위:
+   * 6순위:
    * 공동주택 단일 후보
    */
   const residentialTitles =
@@ -2028,6 +2159,7 @@ function selectMatchedTitle(
         : titleCandidates
   };
 }
+
 
 /* =========================================================
  * 층수 결정
@@ -2907,6 +3039,327 @@ async function validateOneAddress(
         }))
   };
 
+function selectMatchedTitle(
+  titleCandidates,
+  exposMatch,
+  detail,
+  juso
+) {
+  /*
+   * 1순위:
+   * 전유부에서 동·호가 일치한 동명으로 표제부 선택
+   */
+  const matchedDongNames =
+    new Set(
+      exposMatch.exactMatches
+        .map((candidate) =>
+          normalizeDongName(
+            candidate.dongName
+          )
+        )
+        .filter(Boolean)
+    );
+
+  if (matchedDongNames.size > 0) {
+    const exposDongTitles =
+      titleCandidates.filter(
+        (candidate) =>
+          matchedDongNames.has(
+            normalizeDongName(
+              candidate.dongName
+            )
+          )
+      );
+
+    if (exposDongTitles.length > 0) {
+      return {
+        source:
+          "EXPOS_DONG_UNIT_MATCH",
+
+        selected:
+          exposDongTitles[0],
+
+        candidates:
+          exposDongTitles
+      };
+    }
+  }
+
+  /*
+   * 2순위:
+   * 입력 동과 표제부 동명 일치
+   */
+  if (detail.targetDong) {
+    const dongTitles =
+      titleCandidates.filter(
+        (candidate) =>
+          normalizeDongName(
+            candidate.dongName
+          ) ===
+          detail.targetDong
+      );
+
+    if (dongTitles.length > 0) {
+      return {
+        source:
+          "TITLE_DONG_MATCH",
+
+        selected:
+          dongTitles[0],
+
+        candidates:
+          dongTitles
+      };
+    }
+  }
+
+  /*
+   * 3순위:
+   * Juso 도로명주소와 표제부 도로명주소 정확 비교
+   *
+   * 대형 복합대지에서는 동일 지번에 건물이 여러 개 있으므로
+   * 건물명보다 도로명주소 일치를 우선합니다.
+   */
+  const jusoRoadAddress =
+    normalizeRoadAddressForCompare(
+      juso?.roadAddrPart1 ||
+      juso?.roadAddr ||
+      ""
+    );
+
+  if (jusoRoadAddress) {
+    const roadAddressMatches =
+      titleCandidates.filter(
+        (candidate) => {
+          const candidateRoadAddress =
+            normalizeRoadAddressForCompare(
+              candidate.roadAddress
+            );
+
+          return (
+            candidateRoadAddress &&
+            candidateRoadAddress ===
+              jusoRoadAddress
+          );
+        }
+      );
+
+    /*
+     * 도로명주소가 하나만 일치하면 바로 선택
+     */
+    if (
+      roadAddressMatches.length === 1
+    ) {
+      return {
+        source:
+          "ROAD_ADDRESS_EXACT_MATCH",
+
+        selected:
+          roadAddressMatches[0],
+
+        candidates:
+          roadAddressMatches
+      };
+    }
+
+    /*
+     * 같은 도로명주소 후보가 여러 개라면
+     * 건물명·용도·층수 점수로 선택
+     */
+    if (
+      roadAddressMatches.length > 1
+    ) {
+      const scoredMatches =
+        roadAddressMatches
+          .map((candidate) => ({
+            candidate,
+
+            score:
+              calculateTitleCandidateScore(
+                candidate,
+                juso,
+                detail
+              )
+          }))
+          .sort(
+            (a, b) =>
+              b.score - a.score
+          );
+
+      if (
+        scoredMatches.length > 0 &&
+        scoredMatches[0].score >
+          scoredMatches[1]?.score
+      ) {
+        return {
+          source:
+            "ROAD_ADDRESS_SCORED_MATCH",
+
+          selected:
+            scoredMatches[0]
+              .candidate,
+
+          candidates:
+            roadAddressMatches,
+
+          scores:
+            scoredMatches.map(
+              (item) => ({
+                buildingPk:
+                  item.candidate
+                    .buildingPk,
+
+                buildingName:
+                  item.candidate
+                    .buildingName,
+
+                dongName:
+                  item.candidate
+                    .dongName,
+
+                score:
+                  item.score
+              })
+            )
+        };
+      }
+
+      return {
+        source:
+          "ROAD_ADDRESS_MULTIPLE_MATCH",
+
+        selected: null,
+
+        candidates:
+          roadAddressMatches
+      };
+    }
+  }
+
+  /*
+   * 4순위:
+   * Juso 건물명과 표제부 건물명 비교
+   *
+   * 빈 문자열은 절대 비교하지 않습니다.
+   */
+  const jusoBuildingName =
+    normalizeCompareText(
+      juso?.bdNm || ""
+    );
+
+  if (jusoBuildingName) {
+    const buildingNameTitles =
+      titleCandidates.filter(
+        (candidate) => {
+          const candidateName =
+            normalizeCompareText(
+              candidate.buildingName
+            );
+
+          /*
+           * 핵심 수정:
+           * 후보 건물명이 빈 문자열이면 제외
+           */
+          if (!candidateName) {
+            return false;
+          }
+
+          return (
+            candidateName ===
+              jusoBuildingName ||
+            candidateName.includes(
+              jusoBuildingName
+            ) ||
+            jusoBuildingName.includes(
+              candidateName
+            )
+          );
+        }
+      );
+
+    if (
+      buildingNameTitles.length === 1
+    ) {
+      return {
+        source:
+          "JUSO_BUILDING_NAME_MATCH",
+
+        selected:
+          buildingNameTitles[0],
+
+        candidates:
+          buildingNameTitles
+      };
+    }
+
+    if (
+      buildingNameTitles.length > 1
+    ) {
+      return {
+        source:
+          "JUSO_BUILDING_NAME_MULTIPLE",
+
+        selected: null,
+
+        candidates:
+          buildingNameTitles
+      };
+    }
+  }
+
+  /*
+   * 5순위:
+   * 표제부 후보가 하나뿐일 경우
+   */
+  if (titleCandidates.length === 1) {
+    return {
+      source:
+        "SINGLE_TITLE",
+
+      selected:
+        titleCandidates[0],
+
+      candidates:
+        titleCandidates
+    };
+  }
+
+  /*
+   * 6순위:
+   * 공동주택 단일 후보
+   */
+  const residentialTitles =
+    titleCandidates.filter(
+      isLikelyResidentialTitle
+    );
+
+  if (
+    residentialTitles.length === 1
+  ) {
+    return {
+      source:
+        "SINGLE_RESIDENTIAL_TITLE",
+
+      selected:
+        residentialTitles[0],
+
+      candidates:
+        residentialTitles
+    };
+  }
+
+  return {
+    source:
+      "TITLE_NOT_DETERMINED",
+
+    selected: null,
+
+    candidates:
+      residentialTitles.length > 0
+        ? residentialTitles
+        : titleCandidates
+  };
+}  
   /*
    * 6. 표제부 최종 선택
    */
