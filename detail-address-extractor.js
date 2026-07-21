@@ -13,280 +13,201 @@ import http from "node:http";
 import https from "node:https";
 import { fileURLToPath } from "node:url";
 
-import {
-  analyzeAddress
-} from "./addressAnalyzer.js";
+import { analyzeAddress } from "./addressAnalyzer.js";
 
 /* =========================================================
  * 기본 경로
  * ======================================================= */
 
-const __filename =
-  fileURLToPath(
-    import.meta.url
-  );
-
-const __dirname =
-  path.dirname(
-    __filename
-  );
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /* =========================================================
  * 환경변수
  * ======================================================= */
 
-function getSafeNumber(
-  value,
-  defaultValue,
-  min,
-  max
-) {
-  const parsed =
-    Number(value);
+function getSafeNumber(value, defaultValue, min, max) {
+  const parsed = Number(value);
 
-  if (
-    !Number.isFinite(
-      parsed
-    )
-  ) {
+  if (!Number.isFinite(parsed)) {
     return defaultValue;
   }
 
-  return Math.max(
-    min,
-    Math.min(
-      parsed,
-      max
-    )
-  );
+  return Math.max(min, Math.min(parsed, max));
 }
 
-const PORT =
-  getSafeNumber(
-    process.env.PORT,
-    3000,
-    1,
-    65535
-  );
+const PORT = getSafeNumber(
+  process.env.PORT,
+  3000,
+  1,
+  65535
+);
 
-const SERVER_API_BASE_URL =
-  String(
-    process.env
-      .SERVER_API_BASE_URL ||
-    ""
-  )
-    .trim()
-    .replace(
-      /^["']|["']$/g,
-      ""
-    )
-    .replace(
-      /\/+$/,
-      ""
-    );
+const SERVER_API_BASE_URL = String(
+  process.env.SERVER_API_BASE_URL || ""
+)
+  .trim()
+  .replace(/^["']|["']$/g, "")
+  .replace(/\/+$/, "");
 
-const SERVER_API_SECRET =
-  String(
-    process.env
-      .SERVER_API_SECRET ||
-    ""
-  )
-    .trim()
-    .replace(
-      /^["']|["']$/g,
-      ""
-    );
+const SERVER_API_SECRET = String(
+  process.env.SERVER_API_SECRET || ""
+)
+  .trim()
+  .replace(/^["']|["']$/g, "");
 
-const SERVER_API_TIMEOUT =
-  getSafeNumber(
-    process.env
-      .SERVER_API_TIMEOUT,
-    25000,
-    5000,
-    30000
-  );
+const SERVER_API_TIMEOUT = getSafeNumber(
+  process.env.SERVER_API_TIMEOUT,
+  25000,
+  5000,
+  30000
+);
 
-const SERVER_EXPOS_ROWS_PER_PAGE =
-  getSafeNumber(
-    process.env
-      .SERVER_EXPOS_ROWS_PER_PAGE,
-    100,
-    10,
-    100
-  );
+const SERVER_EXPOS_ROWS_PER_PAGE = getSafeNumber(
+  process.env.SERVER_EXPOS_ROWS_PER_PAGE,
+  100,
+  10,
+  100
+);
 
-const SERVER_EXPOS_MAX_PAGES =
-  getSafeNumber(
-    process.env
-      .SERVER_EXPOS_MAX_PAGES,
-    3,
-    1,
-    5
-  );
+const SERVER_EXPOS_MAX_PAGES = getSafeNumber(
+  process.env.SERVER_EXPOS_MAX_PAGES,
+  3,
+  1,
+  5
+);
 
-const ROW_DELAY_MS =
-  getSafeNumber(
-    process.env
-      .ROW_DELAY_MS,
-    100,
-    0,
-    1000
-  );
+const ROW_DELAY_MS = getSafeNumber(
+  process.env.ROW_DELAY_MS,
+  100,
+  0,
+  1000
+);
 
 /* =========================================================
  * HTTP Keep-Alive
  * ======================================================= */
 
-const httpAgent =
-  new http.Agent({
-    keepAlive:
-      true,
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+  maxFreeSockets: 5,
+  timeout: SERVER_API_TIMEOUT
+});
 
-    maxSockets:
-      10,
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 10,
+  maxFreeSockets: 5,
+  timeout: SERVER_API_TIMEOUT
+});
 
-    maxFreeSockets:
-      5,
+const buildingApiClient = axios.create({
+  timeout: SERVER_API_TIMEOUT,
+  httpAgent,
+  httpsAgent,
+  maxRedirects: 0,
 
-    timeout:
-      SERVER_API_TIMEOUT
-  });
-
-const httpsAgent =
-  new https.Agent({
-    keepAlive:
-      true,
-
-    maxSockets:
-      10,
-
-    maxFreeSockets:
-      5,
-
-    timeout:
-      SERVER_API_TIMEOUT
-  });
-
-const buildingApiClient =
-  axios.create({
-    timeout:
-      SERVER_API_TIMEOUT,
-
-    httpAgent,
-
-    httpsAgent,
-
-    maxRedirects:
-      0,
-
-    validateStatus(
-      status
-    ) {
-      return (
-        status >= 200 &&
-        status < 300
-      );
-    }
-  });
+  validateStatus(status) {
+    return status >= 200 && status < 300;
+  }
+});
 
 /* =========================================================
  * Express
  * ======================================================= */
 
-const app =
-  express();
+const app = express();
 
-const uploadDir =
-  path.join(
-    __dirname,
-    "uploads"
+/* =========================================================
+ * 엑셀 작업 상태
+ *
+ * 단일 Railway 인스턴스 기준 메모리 저장 방식입니다.
+ * ======================================================= */
+
+const excelJobs = new Map();
+
+function createJobId() {
+  return (
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2, 10)
   );
+}
 
-fs.mkdirSync(
-  uploadDir,
-  {
-    recursive:
-      true
+function updateExcelJob(jobId, values) {
+  const current = excelJobs.get(jobId);
+
+  if (!current) {
+    return;
   }
-);
+
+  excelJobs.set(jobId, {
+    ...current,
+    ...values,
+    updatedAt: Date.now()
+  });
+}
+
+/* =========================================================
+ * 업로드 폴더
+ * ======================================================= */
+
+const uploadDir = path.join(__dirname, "uploads");
+
+fs.mkdirSync(uploadDir, {
+  recursive: true
+});
 
 /* =========================================================
  * Multer
  * ======================================================= */
 
-const upload =
-  multer({
-    dest:
-      uploadDir,
+const upload = multer({
+  dest: uploadDir,
 
-    limits: {
-      fileSize:
-        20 *
-        1024 *
-        1024
-    },
+  limits: {
+    fileSize: 20 * 1024 * 1024
+  },
 
-    fileFilter(
-      req,
-      file,
-      callback
-    ) {
-      const allowedExtensions = [
-        ".xlsx",
-        ".xls"
-      ];
+  fileFilter(req, file, callback) {
+    const allowedExtensions = [
+      ".xlsx",
+      ".xls"
+    ];
 
-      const extension =
-        path
-          .extname(
-            file.originalname
-          )
-          .toLowerCase();
+    const extension = path
+      .extname(file.originalname)
+      .toLowerCase();
 
-      if (
-        !allowedExtensions.includes(
-          extension
-        )
-      ) {
-        return callback(
-          new Error(
-            "엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다."
-          )
-        );
-      }
-
+    if (!allowedExtensions.includes(extension)) {
       return callback(
-        null,
-        true
+        new Error(
+          "엑셀 파일(.xlsx, .xls)만 업로드할 수 있습니다."
+        )
       );
     }
-  });
+
+    return callback(null, true);
+  }
+});
 
 /* =========================================================
  * 미들웨어
  * ======================================================= */
 
-app.disable(
-  "x-powered-by"
-);
+app.disable("x-powered-by");
 
-app.use(
-  cors()
-);
+app.use(cors());
 
 app.use(
   express.json({
-    limit:
-      "10mb"
+    limit: "10mb"
   })
 );
 
 app.use(
   express.static(
-    path.join(
-      __dirname,
-      "public"
-    )
+    path.join(__dirname, "public")
   )
 );
 
@@ -294,22 +215,14 @@ app.use(
  * 공통 함수
  * ======================================================= */
 
-function safeDeleteFile(
-  filePath
-) {
+function safeDeleteFile(filePath) {
   if (!filePath) {
     return;
   }
 
   try {
-    if (
-      fs.existsSync(
-        filePath
-      )
-    ) {
-      fs.unlinkSync(
-        filePath
-      );
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
     }
   } catch (error) {
     console.error(
@@ -320,114 +233,63 @@ function safeDeleteFile(
   }
 }
 
-function sleep(
-  milliseconds
-) {
-  return new Promise(
-    (resolve) => {
-      setTimeout(
-        resolve,
-        milliseconds
-      );
-    }
-  );
+function sleep(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
-function getErrorMessage(
-  error
-) {
-  if (
-    error instanceof Error
-  ) {
-    return error.message;
-  }
-
-  return String(
-    error
-  );
+function getErrorMessage(error) {
+  return error instanceof Error
+    ? error.message
+    : String(error);
 }
 
-function findColumnName(
-  row,
-  candidates
-) {
-  const keys =
-    Object.keys(
-      row ||
-      {}
-    );
+function findColumnName(row, candidates) {
+  const keys = Object.keys(row || {});
 
-  return keys.find(
-    (key) => {
-      const normalizedKey =
-        String(key)
+  return keys.find((key) => {
+    const normalizedKey = String(key)
+      .trim()
+      .toLowerCase();
+
+    return candidates.some((candidate) => {
+      return (
+        normalizedKey ===
+        String(candidate)
           .trim()
-          .toLowerCase();
-
-      return candidates.some(
-        (candidate) => {
-          return (
-            normalizedKey ===
-            String(candidate)
-              .trim()
-              .toLowerCase()
-          );
-        }
+          .toLowerCase()
       );
-    }
-  );
+    });
+  });
 }
 
-function getAxiosErrorReason(
-  error
-) {
-  const status =
-    error?.response?.status;
+function getAxiosErrorReason(error) {
+  const status = error?.response?.status;
+  const responseData = error?.response?.data;
 
-  const responseData =
-    error?.response?.data;
-
-  if (
-    error?.code ===
-    "ECONNABORTED"
-  ) {
+  if (error?.code === "ECONNABORTED") {
     return (
-      `건축물대장 API 응답 제한시간을 초과했습니다. ` +
+      "건축물대장 API 응답 제한시간을 초과했습니다. " +
       `(${SERVER_API_TIMEOUT}ms)`
     );
   }
 
-  if (
-    error?.code ===
-    "ECONNRESET"
-  ) {
-    return (
-      "건축물대장 API 연결이 중간에 종료되었습니다."
-    );
+  if (error?.code === "ECONNRESET") {
+    return "건축물대장 API 연결이 중간에 종료되었습니다.";
   }
 
-  if (
-    error?.code ===
-    "ENOTFOUND"
-  ) {
-    return (
-      "건축물대장 API 서버 도메인을 찾지 못했습니다."
-    );
+  if (error?.code === "ENOTFOUND") {
+    return "건축물대장 API 서버 도메인을 찾지 못했습니다.";
   }
 
-  if (
-    error?.code ===
-    "ECONNREFUSED"
-  ) {
-    return (
-      "건축물대장 API 서버가 연결을 거부했습니다."
-    );
+  if (error?.code === "ECONNREFUSED") {
+    return "건축물대장 API 서버가 연결을 거부했습니다.";
   }
 
   if (
     responseData &&
-    typeof responseData ===
-      "object"
+    typeof responseData === "object"
   ) {
     const reason =
       responseData.reason ||
@@ -442,45 +304,31 @@ function getAxiosErrorReason(
     }
 
     try {
-      const serialized =
-        JSON.stringify(
-          responseData
-        );
+      const serialized = JSON.stringify(responseData);
 
       return status
         ? `API 오류(${status}): ${serialized}`
         : serialized;
     } catch {
-      // JSON 변환 실패 시 아래 기본 메시지 사용
+      // JSON 변환 실패 시 기본 오류 사용
     }
   }
 
   if (
-    typeof responseData ===
-      "string" &&
+    typeof responseData === "string" &&
     responseData.trim()
   ) {
-    const cleanText =
-      responseData
-        .replace(
-          /<[^>]+>/gu,
-          " "
-        )
-        .replace(
-          /\s+/g,
-          " "
-        )
-        .trim();
+    const cleanText = responseData
+      .replace(/<[^>]+>/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
     return status
       ? `API 오류(${status}): ${cleanText}`
       : cleanText;
   }
 
-  const message =
-    getErrorMessage(
-      error
-    );
+  const message = getErrorMessage(error);
 
   return status
     ? `API 오류(${status}): ${message}`
@@ -488,92 +336,46 @@ function getAxiosErrorReason(
 }
 
 function makeDownloadFileName() {
-  const now =
-    new Date();
+  const now = new Date();
 
-  const pad =
-    (value) => {
-      return String(value)
-        .padStart(
-          2,
-          "0"
-        );
-    };
+  const pad = (value) => {
+    return String(value).padStart(2, "0");
+  };
 
-  const dateText =
-    [
-      now.getFullYear(),
-      pad(
-        now.getMonth() +
-        1
-      ),
-      pad(
-        now.getDate()
-      )
-    ].join("");
+  const dateText = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate())
+  ].join("");
 
-  const timeText =
-    [
-      pad(
-        now.getHours()
-      ),
-      pad(
-        now.getMinutes()
-      ),
-      pad(
-        now.getSeconds()
-      )
-    ].join("");
+  const timeText = [
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds())
+  ].join("");
 
-  return (
-    `주소분석결과_` +
-    `${dateText}_` +
-    `${timeText}.xlsx`
-  );
+  return `주소분석결과_${dateText}_${timeText}.xlsx`;
 }
 
-function makeEmptyBuildingResult(
-  reason = ""
-) {
+function makeEmptyBuildingResult(reason = "") {
   return {
-    ok:
-      false,
+    ok: false,
 
-    groundFloorCount:
-      null,
+    groundFloorCount: null,
+    undergroundFloorCount: null,
+    totalFloorText: "",
 
-    undergroundFloorCount:
-      null,
+    buildingFloorLookupOk: false,
+    buildingFloorLookupReason: reason,
 
-    totalFloorText:
-      "",
+    buildingRegisterName: "",
+    buildingRegisterDongName: "",
+    buildingRegisterPk: "",
+    buildingRegisterType: "",
+    buildingLookupSource: "",
 
-    buildingFloorLookupOk:
-      false,
-
-    buildingFloorLookupReason:
-      reason,
-
-    buildingRegisterName:
-      "",
-
-    buildingRegisterDongName:
-      "",
-
-    buildingRegisterPk:
-      "",
-
-    buildingRegisterType:
-      "",
-
-    buildingLookupSource:
-      "",
-
-    buildingValidationStatus:
-      "",
-
-    buildingValidationReason:
-      ""
+    buildingValidationStatus: "",
+    buildingValidationReason: ""
   };
 }
 
@@ -589,149 +391,92 @@ function makeBuildingApiPayload(
     addressResult?.juso ||
     {
       roadAddr:
-        addressResult
-          ?.roadAddress ||
-        "",
+        addressResult?.roadAddress || "",
 
       roadAddrPart1:
-        addressResult
-          ?.baseAddress ||
-        "",
+        addressResult?.baseAddress || "",
 
       roadAddrPart2:
-        addressResult
-          ?.roadAddrPart2 ||
-        "",
+        addressResult?.roadAddrPart2 || "",
 
       jibunAddr:
-        addressResult
-          ?.jibunAddress ||
-        "",
+        addressResult?.jibunAddress || "",
 
       zipNo:
-        addressResult
-          ?.apiZipCode ||
-        "",
+        addressResult?.apiZipCode || "",
 
       admCd:
-        addressResult
-          ?.admCd ||
-        "",
+        addressResult?.admCd || "",
 
       rnMgtSn:
-        addressResult
-          ?.rnMgtSn ||
-        "",
+        addressResult?.rnMgtSn || "",
 
       udrtYn:
-        addressResult
-          ?.udrtYn ||
-        "",
+        addressResult?.udrtYn || "",
 
       buldMnnm:
-        addressResult
-          ?.buldMnnm ||
-        "",
+        addressResult?.buldMnnm || "",
 
       buldSlno:
-        addressResult
-          ?.buldSlno ||
-        "0",
+        addressResult?.buldSlno || "0",
 
       bdMgtSn:
-        addressResult
-          ?.buildingManagementNo ||
-        "",
+        addressResult?.buildingManagementNo || "",
 
       mtYn:
-        addressResult
-          ?.mtYn ||
-        "0",
+        addressResult?.mtYn || "0",
 
       lnbrMnnm:
-        addressResult
-          ?.lnbrMnnm ||
-        "",
+        addressResult?.lnbrMnnm || "",
 
       lnbrSlno:
-        addressResult
-          ?.lnbrSlno ||
-        "0",
+        addressResult?.lnbrSlno || "0",
 
       bdNm:
-        addressResult
-          ?.buildingName ||
-        "",
+        addressResult?.buildingName || "",
 
       detBdNmList:
-        addressResult
-          ?.detBdNmList ||
-        "",
+        addressResult?.detBdNmList || "",
 
       siNm:
-        addressResult
-          ?.siNm ||
-        "",
+        addressResult?.siNm || "",
 
       sggNm:
-        addressResult
-          ?.sggNm ||
-        "",
+        addressResult?.sggNm || "",
 
       emdNm:
-        addressResult
-          ?.emdNm ||
-        "",
+        addressResult?.emdNm || "",
 
       liNm:
-        addressResult
-          ?.liNm ||
-        "",
+        addressResult?.liNm || "",
 
       rn:
-        addressResult
-          ?.rn ||
-        ""
+        addressResult?.rn || ""
     };
 
-  const fallbackDong =
-    String(
-      addressResult
-        ?.dong ||
-      ""
-    );
+  const fallbackDong = String(
+    addressResult?.dong || ""
+  );
 
-  const fallbackHo =
-    String(
-      addressResult
-        ?.ho ||
-      ""
-    );
+  const fallbackHo = String(
+    addressResult?.ho || ""
+  );
 
-  const fallbackFloor =
-    String(
-      addressResult
-        ?.floor ||
-      ""
-    );
+  const fallbackFloor = String(
+    addressResult?.floor || ""
+  );
 
   const detail =
     addressResult?.detail ||
     {
       raw:
-        addressResult
-          ?.detailAddressOriginal ||
-        "",
+        addressResult?.detailAddressOriginal || "",
 
       clean:
-        addressResult
-          ?.detailAddressNormalized ||
-        "",
+        addressResult?.detailAddressNormalized || "",
 
       pattern:
-        addressResult
-          ?.detailType ||
-        "",
+        addressResult?.detailType || "",
 
       dongRaw:
         fallbackDong,
@@ -744,46 +489,24 @@ function makeBuildingApiPayload(
 
       targetDong:
         fallbackDong
-          .replace(
-            /^제/u,
-            ""
-          )
-          .replace(
-            /동$/u,
-            ""
-          )
-          .replace(
-            /\s+/g,
-            ""
-          )
+          .replace(/^제/u, "")
+          .replace(/동$/u, "")
+          .replace(/\s+/g, "")
           .toLowerCase(),
 
       targetHo:
         fallbackHo
-          .replace(
-            /^제/u,
-            ""
-          )
-          .replace(
-            /호$/u,
-            ""
-          )
-          .replace(
-            /\s+/g,
-            ""
-          )
+          .replace(/^제/u, "")
+          .replace(/호$/u, "")
+          .replace(/\s+/g, "")
           .toLowerCase(),
 
       floorType:
-        fallbackFloor.includes(
-          "지하"
-        )
+        fallbackFloor.includes("지하")
           ? "UNDERGROUND"
-          : (
-              fallbackFloor
-                ? "GROUND"
-                : ""
-            ),
+          : fallbackFloor
+            ? "GROUND"
+            : "",
 
       inputFloor:
         null,
@@ -793,24 +516,15 @@ function makeBuildingApiPayload(
     };
 
   return {
-    orderNo:
-      String(
-        orderNo ??
-        ""
-      ),
+    orderNo: String(orderNo ?? ""),
 
     inputAddress:
-      addressResult
-        ?.inputAddress ||
-      "",
+      addressResult?.inputAddress || "",
 
     baseAddress:
-      addressResult
-        ?.baseAddress ||
-      "",
+      addressResult?.baseAddress || "",
 
     juso,
-
     detail,
 
     options: {
@@ -821,10 +535,6 @@ function makeBuildingApiPayload(
         SERVER_EXPOS_MAX_PAGES
     },
 
-    /*
-     * server.js가 options 안이 아닌 최상위 값을 읽는 경우도
-     * 호환되도록 두 위치에 모두 전달합니다.
-     */
     exposRowsPerPage:
       SERVER_EXPOS_ROWS_PER_PAGE,
 
@@ -847,9 +557,7 @@ async function requestBuildingAnalysis(
     );
   }
 
-  if (
-    !addressResult?.ok
-  ) {
+  if (!addressResult?.ok) {
     return makeEmptyBuildingResult(
       "기본주소 분석에 실패하여 건축물대장을 조회하지 않았습니다."
     );
@@ -858,51 +566,40 @@ async function requestBuildingAnalysis(
   const requestUrl =
     `${SERVER_API_BASE_URL}/api/building/analyze`;
 
-  const payload =
-    makeBuildingApiPayload(
-      addressResult,
-      orderNo
-    );
+  const payload = makeBuildingApiPayload(
+    addressResult,
+    orderNo
+  );
 
   const headers = {
-    "Content-Type":
-      "application/json"
+    "Content-Type": "application/json"
   };
 
   if (SERVER_API_SECRET) {
-    headers[
-      "x-api-secret"
-    ] =
+    headers["x-api-secret"] =
       SERVER_API_SECRET;
   }
 
-  const startedAt =
-    Date.now();
+  const startedAt = Date.now();
 
   try {
-    const response =
-      await buildingApiClient.post(
-        requestUrl,
-        payload,
-        {
-          headers,
-
-          timeout:
-            SERVER_API_TIMEOUT
-        }
-      );
+    const response = await buildingApiClient.post(
+      requestUrl,
+      payload,
+      {
+        headers,
+        timeout: SERVER_API_TIMEOUT
+      }
+    );
 
     const elapsed =
-      Date.now() -
-      startedAt;
+      Date.now() - startedAt;
 
     console.log(
       `[건축물대장 완료] 주문번호: ${orderNo} / ${elapsed}ms`
     );
 
-    const data =
-      response.data ||
-      {};
+    const data = response.data || {};
 
     return {
       ...makeEmptyBuildingResult(),
@@ -912,127 +609,90 @@ async function requestBuildingAnalysis(
         data.ok === true,
 
       buildingFloorLookupOk:
-        data
-          .buildingFloorLookupOk ??
+        data.buildingFloorLookupOk ??
         data.ok ??
         false,
 
       buildingFloorLookupReason:
-        data
-          .buildingFloorLookupReason ||
+        data.buildingFloorLookupReason ||
         data.reason ||
         data.message ||
         "",
 
       totalFloorText:
-        data
-          .totalFloorText ||
-        "",
+        data.totalFloorText || "",
 
       groundFloorCount:
-        data
-          .groundFloorCount ??
-        null,
+        data.groundFloorCount ?? null,
 
       undergroundFloorCount:
-        data
-          .undergroundFloorCount ??
-        null,
+        data.undergroundFloorCount ?? null,
 
       buildingRegisterName:
-        data
-          .buildingRegisterName ||
-        data
-          .buildingName ||
+        data.buildingRegisterName ||
+        data.buildingName ||
         "",
 
       buildingRegisterDongName:
-        data
-          .buildingRegisterDongName ||
-        data
-          .dongName ||
+        data.buildingRegisterDongName ||
+        data.dongName ||
         "",
 
       buildingRegisterPk:
-        data
-          .buildingRegisterPk ||
-        data
-          .buildingPk ||
+        data.buildingRegisterPk ||
+        data.buildingPk ||
         "",
 
       buildingRegisterType:
-        data
-          .buildingRegisterType ||
-        data
-          .registerKindName ||
+        data.buildingRegisterType ||
+        data.registerKindName ||
         "",
 
       buildingLookupSource:
-        data
-          .buildingLookupSource ||
-        data
-          .lookupSource ||
-        data
-          .titleSelectionSource ||
+        data.buildingLookupSource ||
+        data.lookupSource ||
+        data.titleSelectionSource ||
         "",
 
       buildingValidationStatus:
-        data
-          .buildingValidationStatus ||
-        data
-          .validationStatus ||
-        data
-          .exposMatch
-          ?.status ||
+        data.buildingValidationStatus ||
+        data.validationStatus ||
+        data.exposMatch?.status ||
         "",
 
       buildingValidationReason:
-        data
-          .buildingValidationReason ||
-        data
-          .validationReason ||
-        data
-          .exposMatch
-          ?.reason ||
+        data.buildingValidationReason ||
+        data.validationReason ||
+        data.exposMatch?.reason ||
         ""
     };
   } catch (error) {
     const elapsed =
-      Date.now() -
-      startedAt;
+      Date.now() - startedAt;
 
     const reason =
-      getAxiosErrorReason(
-        error
-      );
+      getAxiosErrorReason(error);
 
     console.error(
       "server.js 건축물대장 API 호출 실패:",
       {
-        url:
-          requestUrl,
-
+        url: requestUrl,
         orderNo,
 
         address:
-          addressResult
-            ?.baseAddress ||
-          "",
+          addressResult?.baseAddress || "",
 
         elapsed:
           `${elapsed}ms`,
 
         code:
-          error?.code ||
-          "",
+          error?.code || "",
 
         reason
       }
     );
 
-    return makeEmptyBuildingResult(
-      reason
-    );
+    return makeEmptyBuildingResult(reason);
   }
 }
 
@@ -1048,28 +708,18 @@ async function analyzeAddressWithBuilding(
 
   try {
     addressResult =
-      await analyzeAddress(
-        inputAddress
-      );
+      await analyzeAddress(inputAddress);
   } catch (error) {
     addressResult = {
-      ok:
-        false,
-
+      ok: false,
       inputAddress,
-
-      reason:
-        getErrorMessage(
-          error
-        )
+      reason: getErrorMessage(error)
     };
   }
 
   let buildingResult;
 
-  if (
-    addressResult?.ok
-  ) {
+  if (addressResult?.ok) {
     buildingResult =
       await requestBuildingAnalysis(
         addressResult,
@@ -1083,12 +733,598 @@ async function analyzeAddressWithBuilding(
   }
 
   return {
-    address:
-      addressResult,
-
-    building:
-      buildingResult
+    address: addressResult,
+    building: buildingResult
   };
+}
+
+/* =========================================================
+ * 엑셀 결과 행 생성
+ * ======================================================= */
+
+function makeOutputRow({
+  index,
+  inputOrderNo,
+  inputZipCode,
+  inputAddress,
+  analyzed,
+  building
+}) {
+  return {
+    순번:
+      index + 1,
+
+    주문번호:
+      inputOrderNo,
+
+    입력우편번호:
+      inputZipCode,
+
+    입력주소:
+      inputAddress,
+
+    주소처리성공:
+      analyzed.ok
+        ? "Y"
+        : "N",
+
+    기본주소:
+      analyzed.baseAddress || "",
+
+    도로명주소:
+      analyzed.roadAddress ||
+      analyzed.juso?.roadAddr ||
+      "",
+
+    지번주소:
+      analyzed.jibunAddress ||
+      analyzed.juso?.jibunAddr ||
+      "",
+
+    API우편번호:
+      analyzed.apiZipCode ||
+      analyzed.juso?.zipNo ||
+      "",
+
+    건물명:
+      analyzed.buildingName ||
+      analyzed.juso?.bdNm ||
+      "",
+
+    건물관리번호:
+      analyzed.buildingManagementNo ||
+      analyzed.juso?.bdMgtSn ||
+      "",
+
+    전체층수:
+      building.totalFloorText || "",
+
+    지상층수:
+      building.groundFloorCount ?? "",
+
+    지하층수:
+      building.undergroundFloorCount ?? "",
+
+    건축물대장조회:
+      building.buildingFloorLookupOk
+        ? "Y"
+        : "N",
+
+    건축물대장건물명:
+      building.buildingRegisterName || "",
+
+    건축물대장동명:
+      building.buildingRegisterDongName || "",
+
+    건축물대장PK:
+      building.buildingRegisterPk || "",
+
+    건축물대장유형:
+      building.buildingRegisterType || "",
+
+    건축물조회방식:
+      building.buildingLookupSource || "",
+
+    동호검증상태:
+      building.buildingValidationStatus || "",
+
+    동호검증사유:
+      building.buildingValidationReason || "",
+
+    건축물대장조회사유:
+      building.buildingFloorLookupReason || "",
+
+    상세주소원문:
+      analyzed.detailAddressOriginal ||
+      analyzed.detail?.raw ||
+      "",
+
+    상세주소정규화:
+      analyzed.detailAddressNormalized ||
+      analyzed.detail?.clean ||
+      "",
+
+    동:
+      analyzed.dong ||
+      analyzed.detail?.dongRaw ||
+      "",
+
+    층:
+      analyzed.floor ||
+      analyzed.detail?.floorRaw ||
+      "",
+
+    호:
+      analyzed.ho ||
+      analyzed.detail?.hoRaw ||
+      "",
+
+    기타정보:
+      analyzed.extra || "",
+
+    상세주소유형:
+      analyzed.detailType ||
+      analyzed.detail?.pattern ||
+      "",
+
+    상세주소상태:
+      analyzed.detailStatus || "",
+
+    신뢰도:
+      analyzed.confidence || "",
+
+    검색키워드:
+      analyzed.searchKeyword || "",
+
+    주소분석실패사유:
+      analyzed.reason || ""
+  };
+}
+
+/* =========================================================
+ * 결과 엑셀 파일 생성
+ * ======================================================= */
+
+function createExcelResultFile(
+  jobId,
+  outputRows
+) {
+  const outputSheet =
+    XLSX.utils.json_to_sheet(outputRows);
+
+  const outputWorkbook =
+    XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(
+    outputWorkbook,
+    outputSheet,
+    "주소분석결과"
+  );
+
+  outputSheet["!cols"] = [
+    { wch: 7 },
+    { wch: 22 },
+    { wch: 14 },
+    { wch: 60 },
+    { wch: 14 },
+    { wch: 45 },
+    { wch: 55 },
+    { wch: 55 },
+    { wch: 14 },
+    { wch: 30 },
+    { wch: 28 },
+
+    { wch: 26 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 18 },
+    { wch: 30 },
+    { wch: 20 },
+    { wch: 32 },
+    { wch: 24 },
+    { wch: 28 },
+    { wch: 28 },
+    { wch: 45 },
+    { wch: 55 },
+
+    { wch: 30 },
+    { wch: 35 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 30 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 10 },
+    { wch: 50 },
+    { wch: 50 }
+  ];
+
+  const outputBuffer =
+    XLSX.write(
+      outputWorkbook,
+      {
+        type: "buffer",
+        bookType: "xlsx"
+      }
+    );
+
+  const outputFileName =
+    `address-result-${jobId}.xlsx`;
+
+  const outputPath =
+    path.join(
+      uploadDir,
+      outputFileName
+    );
+
+  fs.writeFileSync(
+    outputPath,
+    outputBuffer
+  );
+
+  return {
+    outputPath,
+    outputSize:
+      outputBuffer.length
+  };
+}
+
+/* =========================================================
+ * 엑셀 백그라운드 처리
+ * ======================================================= */
+
+async function processExcelJob(
+  jobId,
+  uploadedFile
+) {
+  let uploadedPath =
+    uploadedFile?.path || "";
+
+  let outputPath = "";
+
+  const processingStartedAt =
+    Date.now();
+
+  try {
+    updateExcelJob(
+      jobId,
+      {
+        status: "READING",
+        message: "엑셀 파일을 읽고 있습니다."
+      }
+    );
+
+    const inputBuffer =
+      fs.readFileSync(uploadedPath);
+
+    const workbook =
+      XLSX.read(
+        inputBuffer,
+        {
+          type: "buffer",
+          cellDates: false,
+          raw: false
+        }
+      );
+
+    if (
+      !Array.isArray(workbook.SheetNames) ||
+      workbook.SheetNames.length === 0
+    ) {
+      throw new Error(
+        "엑셀 시트를 찾지 못했습니다."
+      );
+    }
+
+    const firstSheetName =
+      workbook.SheetNames[0];
+
+    const sheet =
+      workbook.Sheets[firstSheetName];
+
+    if (!sheet) {
+      throw new Error(
+        "첫 번째 엑셀 시트를 읽지 못했습니다."
+      );
+    }
+
+    const rows =
+      XLSX.utils.sheet_to_json(
+        sheet,
+        {
+          defval: "",
+          raw: false
+        }
+      );
+
+    if (rows.length === 0) {
+      throw new Error(
+        "엑셀에 데이터가 없습니다."
+      );
+    }
+
+    const addressColumn =
+      findColumnName(
+        rows[0],
+        [
+          "주소",
+          "address",
+          "배송지주소",
+          "수령자주소"
+        ]
+      );
+
+    const zipColumn =
+      findColumnName(
+        rows[0],
+        [
+          "우편번호",
+          "zipcode",
+          "zip",
+          "postalcode"
+        ]
+      );
+
+    const orderNoColumn =
+      findColumnName(
+        rows[0],
+        [
+          "주문번호",
+          "orderno",
+          "order_no",
+          "orderNo"
+        ]
+      );
+
+    if (!addressColumn) {
+      throw new Error(
+        "주소 열을 찾지 못했습니다. 헤더명을 '주소'로 설정해 주세요."
+      );
+    }
+
+    const total = rows.length;
+    const outputRows = [];
+
+    updateExcelJob(
+      jobId,
+      {
+        status: "PROCESSING",
+        current: 0,
+        total,
+        percent: 0,
+        message: `0/${total}개 처리 중`
+      }
+    );
+
+    console.log(
+      `[엑셀 분석 시작] 작업 ${jobId} / 총 ${total}건`
+    );
+
+    for (
+      let index = 0;
+      index < total;
+      index += 1
+    ) {
+      const row = rows[index];
+
+      const inputAddress =
+        String(
+          row[addressColumn] ?? ""
+        ).trim();
+
+      const inputZipCode =
+        zipColumn
+          ? String(
+              row[zipColumn] ?? ""
+            ).trim()
+          : "";
+
+      const inputOrderNo =
+        orderNoColumn
+          ? String(
+              row[orderNoColumn] ?? ""
+            ).trim()
+          : String(index + 1);
+
+      const currentOrderNo =
+        inputOrderNo ||
+        String(index + 1);
+
+      updateExcelJob(
+        jobId,
+        {
+          status: "PROCESSING",
+
+          current:
+            index,
+
+          total,
+
+          percent:
+            Math.floor(
+              (index / total) * 100
+            ),
+
+          currentOrderNo,
+
+          currentAddress:
+            inputAddress,
+
+          message:
+            `${index}/${total}개 처리 중`
+        }
+      );
+
+      console.log(
+        `[주소 분석] 작업 ${jobId} / ${index + 1}/${total} / 주문번호: ${currentOrderNo}`
+      );
+
+      const rowStartedAt =
+        Date.now();
+
+      let result;
+
+      if (!inputAddress) {
+        result = {
+          address: {
+            ok: false,
+            reason: "주소가 비어 있습니다."
+          },
+
+          building:
+            makeEmptyBuildingResult(
+              "주소가 비어 있어 건축물대장을 조회하지 않았습니다."
+            )
+        };
+      } else {
+        result =
+          await analyzeAddressWithBuilding(
+            inputAddress,
+            currentOrderNo
+          );
+      }
+
+      const analyzed =
+        result.address || {};
+
+      const building =
+        result.building ||
+        makeEmptyBuildingResult();
+
+      outputRows.push(
+        makeOutputRow({
+          index,
+          inputOrderNo,
+          inputZipCode,
+          inputAddress,
+          analyzed,
+          building
+        })
+      );
+
+      const current =
+        index + 1;
+
+      const percent =
+        Math.round(
+          (current / total) * 100
+        );
+
+      updateExcelJob(
+        jobId,
+        {
+          status: "PROCESSING",
+
+          current,
+          total,
+          percent,
+
+          currentOrderNo,
+
+          currentAddress:
+            inputAddress,
+
+          message:
+            `${current}/${total}개 처리 완료`
+        }
+      );
+
+      console.log(
+        `[주소 완료] 작업 ${jobId} / ${current}/${total} / ${Date.now() - rowStartedAt}ms`
+      );
+
+      if (
+        index < total - 1 &&
+        ROW_DELAY_MS > 0
+      ) {
+        await sleep(ROW_DELAY_MS);
+      }
+    }
+
+    updateExcelJob(
+      jobId,
+      {
+        status: "CREATING_FILE",
+
+        current: total,
+        total,
+        percent: 100,
+
+        message:
+          "결과 엑셀 파일을 생성하고 있습니다."
+      }
+    );
+
+    const fileResult =
+      createExcelResultFile(
+        jobId,
+        outputRows
+      );
+
+    outputPath =
+      fileResult.outputPath;
+
+    safeDeleteFile(uploadedPath);
+    uploadedPath = "";
+
+    const totalElapsed =
+      Date.now() -
+      processingStartedAt;
+
+    updateExcelJob(
+      jobId,
+      {
+        status: "COMPLETED",
+
+        current: total,
+        total,
+        percent: 100,
+
+        outputPath,
+
+        outputSize:
+          fileResult.outputSize,
+
+        downloadName:
+          makeDownloadFileName(),
+
+        completedAt:
+          Date.now(),
+
+        message:
+          `${total}/${total}개 처리 완료`
+      }
+    );
+
+    console.log(
+      `[엑셀 완료] 작업 ${jobId} / 총 ${total}건 / ${totalElapsed}ms / ${fileResult.outputSize} bytes`
+    );
+  } catch (error) {
+    console.error(
+      `[엑셀 작업 오류] 작업 ${jobId}:`,
+      error
+    );
+
+    safeDeleteFile(uploadedPath);
+    safeDeleteFile(outputPath);
+
+    updateExcelJob(
+      jobId,
+      {
+        status: "ERROR",
+
+        error:
+          getErrorMessage(error),
+
+        message:
+          getErrorMessage(error),
+
+        failedAt:
+          Date.now()
+      }
+    );
+  }
 }
 
 /* =========================================================
@@ -1097,30 +1333,20 @@ async function analyzeAddressWithBuilding(
 
 app.get(
   "/api/health",
-  async (
-    req,
-    res
-  ) => {
-    let serverApiReachable =
-      false;
-
-    let serverApiStatus =
-      "";
-
-    let serverApiResponseTime =
-      null;
+  async (req, res) => {
+    let serverApiReachable = false;
+    let serverApiStatus = "";
+    let serverApiResponseTime = null;
 
     if (SERVER_API_BASE_URL) {
-      const startedAt =
-        Date.now();
+      const startedAt = Date.now();
 
       try {
         const response =
           await buildingApiClient.get(
             `${SERVER_API_BASE_URL}/api/health`,
             {
-              timeout:
-                10000,
+              timeout: 10000,
 
               headers:
                 SERVER_API_SECRET
@@ -1141,10 +1367,8 @@ app.get(
           response.status < 300;
 
         serverApiStatus =
-          response.data
-            ?.service ||
-          response.data
-            ?.status ||
+          response.data?.service ||
+          response.data?.status ||
           "응답 정상";
       } catch (error) {
         serverApiResponseTime =
@@ -1152,23 +1376,19 @@ app.get(
           startedAt;
 
         serverApiStatus =
-          getAxiosErrorReason(
-            error
-          );
+          getAxiosErrorReason(error);
       }
     }
 
     return res.json({
-      ok:
-        true,
+      ok: true,
 
       service:
         "detail-address-extractor",
 
       jusoKeyConfigured:
         Boolean(
-          process.env
-            .JUSO_CONFIRM_KEY
+          process.env.JUSO_CONFIRM_KEY
         ),
 
       serverApiBaseUrlConfigured:
@@ -1182,9 +1402,7 @@ app.get(
         ),
 
       serverApiReachable,
-
       serverApiStatus,
-
       serverApiResponseTime,
 
       serverApiTimeout:
@@ -1199,9 +1417,11 @@ app.get(
       rowDelayMs:
         ROW_DELAY_MS,
 
+      activeExcelJobs:
+        excelJobs.size,
+
       timestamp:
-        new Date()
-          .toISOString()
+        new Date().toISOString()
     });
   }
 );
@@ -1212,26 +1432,19 @@ app.get(
 
 app.post(
   "/api/address/analyze",
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
     try {
       const address =
         String(
-          req.body?.address ??
-          ""
+          req.body?.address ?? ""
         ).trim();
 
       if (!address) {
         return res
           .status(400)
           .json({
-            ok:
-              false,
-
-            reason:
-              "address가 없습니다."
+            ok: false,
+            reason: "address가 없습니다."
           });
       }
 
@@ -1244,8 +1457,7 @@ app.post(
 
       return res.json({
         ok:
-          result.address
-            ?.ok === true,
+          result.address?.ok === true,
 
         address:
           result.address,
@@ -1262,751 +1474,429 @@ app.post(
       return res
         .status(500)
         .json({
-          ok:
-            false,
-
+          ok: false,
           reason:
-            getErrorMessage(
-              error
-            )
+            getErrorMessage(error)
         });
     }
   }
 );
 
 /* =========================================================
- * 엑셀 주소 분석
+ * 엑셀 작업 시작
+ * ======================================================= */
+
+app.post(
+  "/api/excel/start",
+
+  upload.single("file"),
+
+  (req, res) => {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({
+          ok: false,
+
+          reason:
+            "업로드된 엑셀 파일이 없습니다."
+        });
+    }
+
+    const jobId =
+      createJobId();
+
+    excelJobs.set(
+      jobId,
+      {
+        jobId,
+
+        status: "WAITING",
+
+        current: 0,
+        total: 0,
+        percent: 0,
+
+        currentOrderNo: "",
+        currentAddress: "",
+
+        outputPath: "",
+        outputSize: 0,
+
+        downloadName: "",
+
+        error: "",
+
+        message:
+          "작업을 준비하고 있습니다.",
+
+        createdAt:
+          Date.now(),
+
+        updatedAt:
+          Date.now()
+      }
+    );
+
+    /*
+     * 업로드 요청에는 작업 ID만 즉시 반환합니다.
+     * 실제 엑셀 분석은 응답 이후 계속 진행됩니다.
+     */
+    res
+      .status(202)
+      .json({
+        ok: true,
+
+        jobId,
+
+        status: "WAITING",
+
+        current: 0,
+        total: 0,
+        percent: 0,
+
+        progressUrl:
+          `/api/excel/progress/${jobId}`,
+
+        downloadUrl:
+          `/api/excel/download/${jobId}`
+      });
+
+    setImmediate(() => {
+      processExcelJob(
+        jobId,
+        req.file
+      ).catch((error) => {
+        console.error(
+          `[엑셀 비동기 실행 오류] 작업 ${jobId}:`,
+          error
+        );
+      });
+    });
+
+    return;
+  }
+);
+
+/* =========================================================
+ * 기존 주소 호환
+ *
+ * 기존 화면에서 /api/excel/analyze를 사용하는 경우에도
+ * 동일하게 작업 ID를 반환하도록 지원합니다.
  * ======================================================= */
 
 app.post(
   "/api/excel/analyze",
 
-  upload.single(
-    "file"
-  ),
+  upload.single("file"),
 
-  async (
-    req,
-    res
-  ) => {
-    let uploadedPath =
-      "";
+  (req, res) => {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({
+          ok: false,
 
-    let clientDisconnected =
-      false;
+          reason:
+            "업로드된 엑셀 파일이 없습니다."
+        });
+    }
 
-    /*
-     * req.close는 정상적인 요청 본문 수신 후에도 발생할 수 있으므로
-     * 여기서는 res의 close 상태를 기준으로 확인합니다.
-     */
-    res.on(
-      "close",
-      () => {
-        if (
-          !res.writableEnded
-        ) {
-          clientDisconnected =
-            true;
+    const jobId =
+      createJobId();
 
-          console.warn(
-            "클라이언트 연결이 결과 전송 전에 종료되었습니다."
-          );
-        }
+    excelJobs.set(
+      jobId,
+      {
+        jobId,
+
+        status: "WAITING",
+
+        current: 0,
+        total: 0,
+        percent: 0,
+
+        currentOrderNo: "",
+        currentAddress: "",
+
+        outputPath: "",
+        outputSize: 0,
+
+        downloadName: "",
+
+        error: "",
+
+        message:
+          "작업을 준비하고 있습니다.",
+
+        createdAt:
+          Date.now(),
+
+        updatedAt:
+          Date.now()
       }
     );
 
-    try {
-      if (!req.file) {
-        return res
-          .status(400)
-          .json({
-            ok:
-              false,
+    res
+      .status(202)
+      .json({
+        ok: true,
 
-            reason:
-              "업로드된 엑셀 파일이 없습니다."
-          });
-      }
+        jobId,
 
-      uploadedPath =
-        req.file.path;
+        status: "WAITING",
 
-      const inputBuffer =
-        fs.readFileSync(
-          uploadedPath
+        current: 0,
+        total: 0,
+        percent: 0,
+
+        progressUrl:
+          `/api/excel/progress/${jobId}`,
+
+        downloadUrl:
+          `/api/excel/download/${jobId}`
+      });
+
+    setImmediate(() => {
+      processExcelJob(
+        jobId,
+        req.file
+      ).catch((error) => {
+        console.error(
+          `[엑셀 비동기 실행 오류] 작업 ${jobId}:`,
+          error
         );
+      });
+    });
 
-      const workbook =
-        XLSX.read(
-          inputBuffer,
-          {
-            type:
-              "buffer",
-
-            cellDates:
-              false,
-
-            raw:
-              false
-          }
-        );
-
-      if (
-        !Array.isArray(
-          workbook.SheetNames
-        ) ||
-        workbook.SheetNames
-          .length === 0
-      ) {
-        safeDeleteFile(
-          uploadedPath
-        );
-
-        return res
-          .status(400)
-          .json({
-            ok:
-              false,
-
-            reason:
-              "엑셀 시트를 찾지 못했습니다."
-          });
-      }
-
-      const firstSheetName =
-        workbook
-          .SheetNames[0];
-
-      const sheet =
-        workbook
-          .Sheets[
-            firstSheetName
-          ];
-
-      if (!sheet) {
-        safeDeleteFile(
-          uploadedPath
-        );
-
-        return res
-          .status(400)
-          .json({
-            ok:
-              false,
-
-            reason:
-              "첫 번째 엑셀 시트를 읽지 못했습니다."
-          });
-      }
-
-      const rows =
-        XLSX.utils
-          .sheet_to_json(
-            sheet,
-            {
-              defval:
-                "",
-
-              raw:
-                false
-            }
-          );
-
-      if (
-        rows.length === 0
-      ) {
-        safeDeleteFile(
-          uploadedPath
-        );
-
-        return res
-          .status(400)
-          .json({
-            ok:
-              false,
-
-            reason:
-              "엑셀에 데이터가 없습니다."
-          });
-      }
-
-      const addressColumn =
-        findColumnName(
-          rows[0],
-          [
-            "주소",
-            "address",
-            "배송지주소",
-            "수령자주소"
-          ]
-        );
-
-      const zipColumn =
-        findColumnName(
-          rows[0],
-          [
-            "우편번호",
-            "zipcode",
-            "zip",
-            "postalcode"
-          ]
-        );
-
-      const orderNoColumn =
-        findColumnName(
-          rows[0],
-          [
-            "주문번호",
-            "orderno",
-            "order_no",
-            "orderNo"
-          ]
-        );
-
-      if (!addressColumn) {
-        safeDeleteFile(
-          uploadedPath
-        );
-
-        return res
-          .status(400)
-          .json({
-            ok:
-              false,
-
-            reason:
-              "주소 열을 찾지 못했습니다. 헤더명을 '주소'로 설정해 주세요."
-          });
-      }
-
-      const outputRows = [];
-
-      const total =
-        rows.length;
-
-      const processingStartedAt =
-        Date.now();
-
-      console.log(
-        `[엑셀 분석 시작] 총 ${total}건`
-      );
-
-      for (
-        let index = 0;
-        index < total;
-        index += 1
-      ) {
-        if (
-          clientDisconnected
-        ) {
-          console.warn(
-            `[엑셀 처리 중단] ${index}/${total}건 처리 후 연결 종료`
-          );
-
-          break;
-        }
-
-        const row =
-          rows[index];
-
-        const inputAddress =
-          String(
-            row[
-              addressColumn
-            ] ??
-            ""
-          ).trim();
-
-        const inputZipCode =
-          zipColumn
-            ? String(
-                row[
-                  zipColumn
-                ] ??
-                ""
-              ).trim()
-            : "";
-
-        const inputOrderNo =
-          orderNoColumn
-            ? String(
-                row[
-                  orderNoColumn
-                ] ??
-                ""
-              ).trim()
-            : String(
-                index + 1
-              );
-
-        const currentOrderNo =
-          inputOrderNo ||
-          String(
-            index + 1
-          );
-
-        console.log(
-          `[주소 분석] ${index + 1}/${total} / 주문번호: ${currentOrderNo}`
-        );
-
-        const rowStartedAt =
-          Date.now();
-
-        let result;
-
-        if (!inputAddress) {
-          result = {
-            address: {
-              ok:
-                false,
-
-              reason:
-                "주소가 비어 있습니다."
-            },
-
-            building:
-              makeEmptyBuildingResult(
-                "주소가 비어 있어 건축물대장을 조회하지 않았습니다."
-              )
-          };
-        } else {
-          result =
-            await analyzeAddressWithBuilding(
-              inputAddress,
-              currentOrderNo
-            );
-        }
-
-        const analyzed =
-          result.address ||
-          {};
-
-        const building =
-          result.building ||
-          makeEmptyBuildingResult();
-
-        outputRows.push({
-          순번:
-            index + 1,
-
-          주문번호:
-            inputOrderNo,
-
-          입력우편번호:
-            inputZipCode,
-
-          입력주소:
-            inputAddress,
-
-          주소처리성공:
-            analyzed.ok
-              ? "Y"
-              : "N",
-
-          기본주소:
-            analyzed
-              .baseAddress ||
-            "",
-
-          도로명주소:
-            analyzed
-              .roadAddress ||
-            analyzed
-              .juso
-              ?.roadAddr ||
-            "",
-
-          지번주소:
-            analyzed
-              .jibunAddress ||
-            analyzed
-              .juso
-              ?.jibunAddr ||
-            "",
-
-          API우편번호:
-            analyzed
-              .apiZipCode ||
-            analyzed
-              .juso
-              ?.zipNo ||
-            "",
-
-          건물명:
-            analyzed
-              .buildingName ||
-            analyzed
-              .juso
-              ?.bdNm ||
-            "",
-
-          건물관리번호:
-            analyzed
-              .buildingManagementNo ||
-            analyzed
-              .juso
-              ?.bdMgtSn ||
-            "",
-
-          전체층수:
-            building
-              .totalFloorText ||
-            "",
-
-          지상층수:
-            building
-              .groundFloorCount ??
-            "",
-
-          지하층수:
-            building
-              .undergroundFloorCount ??
-            "",
-
-          건축물대장조회:
-            building
-              .buildingFloorLookupOk
-              ? "Y"
-              : "N",
-
-          건축물대장건물명:
-            building
-              .buildingRegisterName ||
-            "",
-
-          건축물대장동명:
-            building
-              .buildingRegisterDongName ||
-            "",
-
-          건축물대장PK:
-            building
-              .buildingRegisterPk ||
-            "",
-
-          건축물대장유형:
-            building
-              .buildingRegisterType ||
-            "",
-
-          건축물조회방식:
-            building
-              .buildingLookupSource ||
-            "",
-
-          동호검증상태:
-            building
-              .buildingValidationStatus ||
-            "",
-
-          동호검증사유:
-            building
-              .buildingValidationReason ||
-            "",
-
-          건축물대장조회사유:
-            building
-              .buildingFloorLookupReason ||
-            "",
-
-          상세주소원문:
-            analyzed
-              .detailAddressOriginal ||
-            analyzed
-              .detail
-              ?.raw ||
-            "",
-
-          상세주소정규화:
-            analyzed
-              .detailAddressNormalized ||
-            analyzed
-              .detail
-              ?.clean ||
-            "",
-
-          동:
-            analyzed.dong ||
-            analyzed
-              .detail
-              ?.dongRaw ||
-            "",
-
-          층:
-            analyzed.floor ||
-            analyzed
-              .detail
-              ?.floorRaw ||
-            "",
-
-          호:
-            analyzed.ho ||
-            analyzed
-              .detail
-              ?.hoRaw ||
-            "",
-
-          기타정보:
-            analyzed.extra ||
-            "",
-
-          상세주소유형:
-            analyzed
-              .detailType ||
-            analyzed
-              .detail
-              ?.pattern ||
-            "",
-
-          상세주소상태:
-            analyzed
-              .detailStatus ||
-            "",
-
-          신뢰도:
-            analyzed
-              .confidence ||
-            "",
-
-          검색키워드:
-            analyzed
-              .searchKeyword ||
-            "",
-
-          주소분석실패사유:
-            analyzed.reason ||
-            ""
-        });
-
-        console.log(
-          `[주소 완료] ${index + 1}/${total} / ${Date.now() - rowStartedAt}ms`
-        );
-
-        if (
-          index <
-            total - 1 &&
-          ROW_DELAY_MS >
-            0
-        ) {
-          await sleep(
-            ROW_DELAY_MS
-          );
-        }
-      }
-
-      safeDeleteFile(
-        uploadedPath
-      );
-
-      uploadedPath =
-        "";
-
-      if (
-        clientDisconnected
-      ) {
-        return;
-      }
-
-      if (
-        outputRows.length ===
-        0
-      ) {
-        return res
-          .status(499)
-          .json({
-            ok:
-              false,
-
-            reason:
-              "클라이언트 연결 종료로 처리가 중단되었습니다."
-          });
-      }
-
-      /* =====================================================
-       * 결과 엑셀 생성
-       * =================================================== */
-
-      const outputSheet =
-        XLSX.utils
-          .json_to_sheet(
-            outputRows
-          );
-
-      const outputWorkbook =
-        XLSX.utils
-          .book_new();
-
-      XLSX.utils
-        .book_append_sheet(
-          outputWorkbook,
-          outputSheet,
-          "주소분석결과"
-        );
-
-      outputSheet["!cols"] = [
-        { wch: 7 },
-        { wch: 22 },
-        { wch: 14 },
-        { wch: 60 },
-        { wch: 14 },
-        { wch: 45 },
-        { wch: 55 },
-        { wch: 55 },
-        { wch: 14 },
-        { wch: 30 },
-        { wch: 28 },
-
-        { wch: 26 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 18 },
-        { wch: 30 },
-        { wch: 20 },
-        { wch: 32 },
-        { wch: 24 },
-        { wch: 28 },
-        { wch: 28 },
-        { wch: 45 },
-        { wch: 55 },
-
-        { wch: 30 },
-        { wch: 35 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 12 },
-        { wch: 30 },
-        { wch: 22 },
-        { wch: 22 },
-        { wch: 10 },
-        { wch: 50 },
-        { wch: 50 }
-      ];
-
-      const outputBuffer =
-        XLSX.write(
-          outputWorkbook,
-          {
-            type:
-              "buffer",
-
-            bookType:
-              "xlsx"
-          }
-        );
-
-      const downloadName =
-        makeDownloadFileName();
-
-      const encodedDownloadName =
-        encodeURIComponent(
-          downloadName
-        )
-          .replace(
-            /['()]/g,
-            escape
-          )
-          .replace(
-            /\*/g,
-            "%2A"
-          );
-
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      );
-
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="address-result.xlsx"; filename*=UTF-8''${encodedDownloadName}`
-      );
-
-      res.setHeader(
-        "Content-Length",
-        String(
-          outputBuffer.length
-        )
-      );
-
-      res.setHeader(
-        "Cache-Control",
-        "no-store, no-cache, must-revalidate, proxy-revalidate"
-      );
-
-      res.setHeader(
-        "Pragma",
-        "no-cache"
-      );
-
-      res.setHeader(
-        "Expires",
-        "0"
-      );
-
-      const totalElapsed =
-        Date.now() -
-        processingStartedAt;
-
-      console.log(
-        `[엑셀 완료] 총 ${outputRows.length}건 / ${totalElapsed}ms / ${outputBuffer.length} bytes`
-      );
-
-      return res
-        .status(200)
-        .send(
-          outputBuffer
-        );
-    } catch (error) {
-      console.error(
-        "엑셀 분석 오류:",
-        error
-      );
-
-      safeDeleteFile(
-        uploadedPath
-      );
-
-      if (
-        res.headersSent ||
-        clientDisconnected
-      ) {
-        return;
-      }
-
-      return res
-        .status(500)
-        .json({
-          ok:
-            false,
-
-          reason:
-            getErrorMessage(
-              error
-            )
-        });
-    }
+    return;
   }
 );
+
+/* =========================================================
+ * 엑셀 진행률 조회
+ * ======================================================= */
+
+app.get(
+  "/api/excel/progress/:jobId",
+  (req, res) => {
+    const job =
+      excelJobs.get(
+        req.params.jobId
+      );
+
+    if (!job) {
+      return res
+        .status(404)
+        .json({
+          ok: false,
+
+          reason:
+            "작업 정보를 찾지 못했습니다."
+        });
+    }
+
+    return res.json({
+      ok: true,
+
+      jobId:
+        job.jobId,
+
+      status:
+        job.status,
+
+      current:
+        job.current,
+
+      total:
+        job.total,
+
+      percent:
+        job.percent,
+
+      progressText:
+        `${job.current}/${job.total}개`,
+
+      currentOrderNo:
+        job.currentOrderNo || "",
+
+      currentAddress:
+        job.currentAddress || "",
+
+      message:
+        job.message || "",
+
+      error:
+        job.error || "",
+
+      downloadReady:
+        job.status ===
+        "COMPLETED",
+
+      downloadUrl:
+        job.status === "COMPLETED"
+          ? `/api/excel/download/${job.jobId}`
+          : "",
+
+      updatedAt:
+        job.updatedAt
+    });
+  }
+);
+
+/* =========================================================
+ * 엑셀 결과 다운로드
+ * ======================================================= */
+
+app.get(
+  "/api/excel/download/:jobId",
+  (req, res) => {
+    const jobId =
+      req.params.jobId;
+
+    const job =
+      excelJobs.get(jobId);
+
+    if (!job) {
+      return res
+        .status(404)
+        .json({
+          ok: false,
+
+          reason:
+            "작업 정보를 찾지 못했습니다."
+        });
+    }
+
+    if (job.status === "ERROR") {
+      return res
+        .status(409)
+        .json({
+          ok: false,
+
+          reason:
+            job.error ||
+            "엑셀 분석 중 오류가 발생했습니다."
+        });
+    }
+
+    if (job.status !== "COMPLETED") {
+      return res
+        .status(409)
+        .json({
+          ok: false,
+
+          reason:
+            "아직 엑셀 처리가 완료되지 않았습니다.",
+
+          status:
+            job.status,
+
+          current:
+            job.current,
+
+          total:
+            job.total
+        });
+    }
+
+    if (
+      !job.outputPath ||
+      !fs.existsSync(job.outputPath)
+    ) {
+      excelJobs.delete(jobId);
+
+      return res
+        .status(404)
+        .json({
+          ok: false,
+
+          reason:
+            "결과 파일을 찾지 못했습니다."
+        });
+    }
+
+    return res.download(
+      job.outputPath,
+
+      job.downloadName ||
+      makeDownloadFileName(),
+
+      (error) => {
+        if (error) {
+          console.error(
+            `[엑셀 다운로드 오류] 작업 ${jobId}:`,
+            error
+          );
+
+          return;
+        }
+
+        safeDeleteFile(job.outputPath);
+
+        excelJobs.delete(jobId);
+
+        console.log(
+          `[엑셀 다운로드 완료] 작업 ${jobId}`
+        );
+      }
+    );
+  }
+);
+
+/* =========================================================
+ * 만료된 작업 정리
+ * ======================================================= */
+
+const JOB_EXPIRE_MS =
+  60 * 60 * 1000;
+
+const JOB_CLEANUP_INTERVAL_MS =
+  10 * 60 * 1000;
+
+const jobCleanupTimer =
+  setInterval(() => {
+    const now = Date.now();
+
+    for (
+      const [
+        jobId,
+        job
+      ] of excelJobs.entries()
+    ) {
+      if (
+        now - job.updatedAt <
+        JOB_EXPIRE_MS
+      ) {
+        continue;
+      }
+
+      safeDeleteFile(job.outputPath);
+
+      excelJobs.delete(jobId);
+
+      console.log(
+        `[엑셀 작업 만료 삭제] 작업 ${jobId}`
+      );
+    }
+  }, JOB_CLEANUP_INTERVAL_MS);
+
+jobCleanupTimer.unref();
 
 /* =========================================================
  * 404
  * ======================================================= */
 
-app.use(
-  (
-    req,
-    res
-  ) => {
-    return res
-      .status(404)
-      .json({
-        ok:
-          false,
+app.use((req, res) => {
+  return res
+    .status(404)
+    .json({
+      ok: false,
 
-        reason:
-          "요청한 경로가 없습니다."
-      });
-  }
-);
+      reason:
+        "요청한 경로가 없습니다."
+    });
+});
 
 /* =========================================================
  * 오류 처리
@@ -2024,16 +1914,10 @@ app.use(
       error
     );
 
-    safeDeleteFile(
-      req.file?.path
-    );
+    safeDeleteFile(req.file?.path);
 
-    if (
-      res.headersSent
-    ) {
-      return next(
-        error
-      );
+    if (res.headersSent) {
+      return next(error);
     }
 
     if (
@@ -2047,8 +1931,7 @@ app.use(
         return res
           .status(400)
           .json({
-            ok:
-              false,
+            ok: false,
 
             reason:
               "업로드 파일은 최대 20MB까지 가능합니다."
@@ -2058,8 +1941,7 @@ app.use(
       return res
         .status(400)
         .json({
-          ok:
-            false,
+          ok: false,
 
           reason:
             `파일 업로드 오류: ${error.message}`
@@ -2069,13 +1951,10 @@ app.use(
     return res
       .status(400)
       .json({
-        ok:
-          false,
+        ok: false,
 
         reason:
-          getErrorMessage(
-            error
-          )
+          getErrorMessage(error)
       });
   }
 );
@@ -2108,74 +1987,61 @@ process.on(
  * 서버 실행
  * ======================================================= */
 
-const server =
-  app.listen(
-    PORT,
-    "0.0.0.0",
-    () => {
-      console.log(
-        `Detail address extractor running on port ${PORT}`
-      );
+const server = app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `Detail address extractor running on port ${PORT}`
+    );
 
-      console.log(
-        "JUSO_CONFIRM_KEY:",
-        process.env
-          .JUSO_CONFIRM_KEY
-          ? "설정됨"
-          : "미설정"
-      );
+    console.log(
+      "JUSO_CONFIRM_KEY:",
+      process.env.JUSO_CONFIRM_KEY
+        ? "설정됨"
+        : "미설정"
+    );
 
-      console.log(
-        "SERVER_API_BASE_URL:",
-        SERVER_API_BASE_URL ||
-        "미설정"
-      );
+    console.log(
+      "SERVER_API_BASE_URL:",
+      SERVER_API_BASE_URL ||
+      "미설정"
+    );
 
-      console.log(
-        "SERVER_API_SECRET:",
-        SERVER_API_SECRET
-          ? "설정됨"
-          : "미설정"
-      );
+    console.log(
+      "SERVER_API_SECRET:",
+      SERVER_API_SECRET
+        ? "설정됨"
+        : "미설정"
+    );
 
-      console.log(
-        "SERVER_API_TIMEOUT:",
-        `${SERVER_API_TIMEOUT}ms`
-      );
+    console.log(
+      "SERVER_API_TIMEOUT:",
+      `${SERVER_API_TIMEOUT}ms`
+    );
 
-      console.log(
-        "SERVER_EXPOS_ROWS_PER_PAGE:",
-        SERVER_EXPOS_ROWS_PER_PAGE
-      );
+    console.log(
+      "SERVER_EXPOS_ROWS_PER_PAGE:",
+      SERVER_EXPOS_ROWS_PER_PAGE
+    );
 
-      console.log(
-        "SERVER_EXPOS_MAX_PAGES:",
-        SERVER_EXPOS_MAX_PAGES
-      );
+    console.log(
+      "SERVER_EXPOS_MAX_PAGES:",
+      SERVER_EXPOS_MAX_PAGES
+    );
 
-      console.log(
-        "ROW_DELAY_MS:",
-        `${ROW_DELAY_MS}ms`
-      );
-    }
-  );
+    console.log(
+      "ROW_DELAY_MS:",
+      `${ROW_DELAY_MS}ms`
+    );
+  }
+);
 
-/*
- * 엑셀 처리 요청이 길어질 수 있으므로 Node 서버 자체의
- * 요청 제한시간은 충분히 길게 둡니다.
- *
- * 단, Railway 외부 프록시 제한은 별도이므로 대량 데이터에서는
- * 작업 큐 구조가 더 안정적입니다.
- */
 server.requestTimeout =
-  10 *
-  60 *
-  1000;
+  10 * 60 * 1000;
 
 server.headersTimeout =
-  65 *
-  1000;
+  65 * 1000;
 
 server.keepAliveTimeout =
-  60 *
-  1000;
+  60 * 1000;
