@@ -6,10 +6,6 @@ dotenv.config();
 
 const app = express();
 
-/* =========================================================
- * 환경변수
- * ======================================================= */
-
 const PORT = Number(process.env.PORT || 3000);
 
 const JUSO_API_KEY = String(
@@ -51,11 +47,8 @@ const allowedOrigins = ALLOWED_ORIGIN
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin) {
-        return callback(null, true);
-      }
-
       if (
+        !origin ||
         allowedOrigins.includes("*") ||
         allowedOrigins.includes(origin)
       ) {
@@ -63,7 +56,9 @@ app.use(
       }
 
       return callback(
-        new Error("허용되지 않은 Origin입니다.")
+        new Error(
+          "허용되지 않은 Origin입니다."
+        )
       );
     },
 
@@ -81,10 +76,14 @@ app.use(
 );
 
 /* =========================================================
- * 인증
+ * API 인증
  * ======================================================= */
 
-function checkSecret(req, res, next) {
+function checkSecret(
+  req,
+  res,
+  next
+) {
   if (!API_SECRET) {
     return next();
   }
@@ -93,7 +92,9 @@ function checkSecret(req, res, next) {
     req.headers["x-api-secret"] || ""
   );
 
-  if (requestSecret !== API_SECRET) {
+  if (
+    requestSecret !== API_SECRET
+  ) {
     return res.status(401).json({
       ok: false,
       message: "Unauthorized"
@@ -114,7 +115,9 @@ function cleanText(value) {
     .replace(/\s+/g, " ");
 }
 
-function normalizeCompareText(value) {
+function normalizeCompareText(
+  value
+) {
   return String(value ?? "")
     .replace(/\u00a0/g, "")
     .replace(/\s+/g, "")
@@ -152,24 +155,29 @@ function toArray(value) {
     : [value];
 }
 
-function padJibunNumber(value) {
-  const digits = String(value ?? "")
-    .replace(/\D/g, "");
+function padJibunNumber(
+  value
+) {
+  const digits = String(
+    value ?? ""
+  ).replace(/\D/g, "");
 
-  if (!digits) {
-    return "0000";
-  }
-
-  return digits.padStart(4, "0");
+  return digits
+    ? digits.padStart(4, "0")
+    : "0000";
 }
 
 function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+  return new Promise(
+    (resolve) =>
+      setTimeout(resolve, ms)
+  );
 }
 
-function pickFirstValue(row, keys) {
+function pickFirstValue(
+  row,
+  keys
+) {
   for (const key of keys) {
     const value = row?.[key];
 
@@ -189,8 +197,12 @@ function pickFirstValue(row, keys) {
  * 상세주소 정규화
  * ======================================================= */
 
-function normalizeDetailAddress(value) {
-  const raw = String(value ?? "");
+function normalizeDetailAddress(
+  value
+) {
+  const raw = String(
+    value ?? ""
+  );
 
   let clean = raw
     .replace(/\u00a0/g, " ")
@@ -198,60 +210,87 @@ function normalizeDetailAddress(value) {
     .replace(/[，,;/|]+/g, " ")
     .replace(/\s+/g, " ");
 
-  // 3F → 3층
-  clean = clean.replace(
-    /(\d+)\s*[Ff]\b/g,
-    "$1층"
-  );
-
-  // B1F → 지하 1층
+  /*
+   * B1F → 지하 1층
+   */
   clean = clean.replace(
     /\bB\s*(\d+)\s*[Ff]\b/gi,
     "지하 $1층"
   );
 
-  // 지하1층 → 지하 1층
+  /*
+   * 3F → 3층
+   */
+  clean = clean.replace(
+    /(\d+)\s*[Ff]\b/g,
+    "$1층"
+  );
+
+  /*
+   * 지하1층 → 지하 1층
+   */
   clean = clean.replace(
     /지하\s*(\d+)\s*층/g,
     "지하 $1층"
   );
 
-  // 101동505호 → 101동 505호
+  /*
+   * 101동505호 → 101동 505호
+   */
   clean = clean.replace(
     /([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]+호?)$/g,
     "$1 $2"
   );
 
-  // 5층505호 → 5층 505호
+  /*
+   * 5층505호 → 5층 505호
+   */
   clean = clean.replace(
     /(\d+층)\s*([0-9A-Za-z]+호?)$/g,
     "$1 $2"
   );
 
-  // 지하1층B101호 → 지하 1층 B101호
+  /*
+   * 지하1층B101호
+   * → 지하 1층 B101호
+   */
   clean = clean.replace(
     /(지하\s*\d+층)\s*([A-Za-z]?\d+호?)$/g,
     "$1 $2"
   );
 
-  // 숫자만 입력되면 호수로 처리
-  if (/^\d{1,5}$/.test(clean)) {
+  /*
+   * 숫자만 입력된 경우
+   * 호수로 처리
+   */
+  if (
+    /^\d{1,5}$/.test(clean)
+  ) {
     clean += "호";
   }
 
-  // 101동 505 → 101동 505호
+  /*
+   * 101동 505
+   * → 101동 505호
+   */
   clean = clean.replace(
     /([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z]{1,8})$/g,
     "$1 $2호"
   );
 
-  // 5층 505 → 5층 505호
+  /*
+   * 5층 505
+   * → 5층 505호
+   */
   clean = clean.replace(
     /(\d+층)\s*([0-9A-Za-z]{1,8})$/g,
     "$1 $2호"
   );
 
-  // 지하 1층 B101 → 지하 1층 B101호
+  /*
+   * 지하 1층 B101
+   * → 지하 1층 B101호
+   */
   clean = clean.replace(
     /(지하\s*\d+층)\s*([A-Za-z]?\d+)$/g,
     "$1 $2호"
@@ -272,19 +311,23 @@ function normalizeDetailAddress(value) {
  * 동·호 정규화
  * ======================================================= */
 
-function normalizeDongName(value) {
-  let text = String(value ?? "")
+function normalizeDongName(
+  value
+) {
+  let text = String(
+    value ?? ""
+  )
     .replace(/\u00a0/g, "")
     .replace(/\s+/g, "")
     .replace(/[()]/g, "")
     .trim()
-    .toLowerCase();
-
-  text = text
+    .toLowerCase()
     .replace(/^제/, "")
     .replace(/동$/, "");
 
-  if (/^\d+$/.test(text)) {
+  if (
+    /^\d+$/.test(text)
+  ) {
     text = text.replace(
       /^0+(?=\d)/,
       ""
@@ -294,31 +337,27 @@ function normalizeDongName(value) {
   return text;
 }
 
-function normalizeHoName(value) {
-  let text = String(value ?? "")
+function normalizeHoName(
+  value
+) {
+  let text = String(
+    value ?? ""
+  )
     .replace(/\u00a0/g, "")
     .replace(/\s+/g, "")
     .replace(/[()]/g, "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/^제/, "")
+    .replace(
+      /^(?:지하\d+층|\d+층)/,
+      ""
+    )
+    .replace(/호$/, "");
 
-  // 제505호 → 505호
-  text = text.replace(/^제/, "");
-
-  /*
-   * 전유부 응답 예:
-   * 5층505호 → 505
-   * 10층1001호 → 1001
-   * 지하1층B101호 → b101
-   */
-  text = text.replace(
-    /^(?:지하\d+층|\d+층)/,
-    ""
-  );
-
-  text = text.replace(/호$/, "");
-
-  if (/^\d+$/.test(text)) {
+  if (
+    /^\d+$/.test(text)
+  ) {
     text = text.replace(
       /^0+(?=\d)/,
       ""
@@ -328,8 +367,12 @@ function normalizeHoName(value) {
   return text;
 }
 
-function extractFloorFromHoName(value) {
-  const text = String(value ?? "")
+function extractFloorFromHoName(
+  value
+) {
+  const text = String(
+    value ?? ""
+  )
     .replace(/\s+/g, "")
     .trim();
 
@@ -339,17 +382,25 @@ function extractFloorFromHoName(value) {
 
   if (match) {
     return {
-      floorType: "UNDERGROUND",
-      floorNumber: Number(match[1])
+      floorType:
+        "UNDERGROUND",
+
+      floorNumber:
+        Number(match[1])
     };
   }
 
-  match = text.match(/^(\d+)층/);
+  match = text.match(
+    /^(\d+)층/
+  );
 
   if (match) {
     return {
-      floorType: "GROUND",
-      floorNumber: Number(match[1])
+      floorType:
+        "GROUND",
+
+      floorNumber:
+        Number(match[1])
     };
   }
 
@@ -363,19 +414,30 @@ function extractFloorFromHoName(value) {
  * 상세주소 파싱
  * ======================================================= */
 
-function inferGroundFloorFromUnit(unitName) {
-  const digits = String(unitName ?? "")
-    .replace(/\D/g, "");
+function inferGroundFloorFromUnit(
+  unitName
+) {
+  const digits = String(
+    unitName ?? ""
+  ).replace(/\D/g, "");
 
-  // 505호 → 5층
-  if (digits.length === 3) {
+  /*
+   * 505호 → 5층
+   */
+  if (
+    digits.length === 3
+  ) {
     return Number(
       digits.slice(0, 1)
     );
   }
 
-  // 1203호 → 12층
-  if (digits.length === 4) {
+  /*
+   * 1203호 → 12층
+   */
+  if (
+    digits.length === 4
+  ) {
     return Number(
       digits.slice(0, 2)
     );
@@ -384,13 +446,16 @@ function inferGroundFloorFromUnit(unitName) {
   return null;
 }
 
-function parseDetailAddress(detailAddress) {
+function parseDetailAddress(
+  detailAddress
+) {
   const normalized =
     normalizeDetailAddress(
       detailAddress
     );
 
-  const clean = normalized.clean;
+  const clean =
+    normalized.clean;
 
   /*
    * 101동 505호
@@ -401,27 +466,40 @@ function parseDetailAddress(detailAddress) {
 
   if (match) {
     return {
-      raw: normalized.raw,
-      clean,
-      pattern: "DONG_HO",
+      raw:
+        normalized.raw,
 
-      dongRaw: match[1],
-      hoRaw: match[2],
+      clean,
+
+      pattern:
+        "DONG_HO",
+
+      dongRaw:
+        match[1],
+
+      hoRaw:
+        match[2],
 
       targetDong:
-        normalizeDongName(match[1]),
+        normalizeDongName(
+          match[1]
+        ),
 
       targetHo:
-        normalizeHoName(match[2]),
+        normalizeHoName(
+          match[2]
+        ),
 
-      floorType: "GROUND",
+      floorType:
+        "GROUND",
 
       inferredFloor:
         inferGroundFloorFromUnit(
           match[2]
         ),
 
-      inputFloor: null
+      inputFloor:
+        null
     };
   }
 
@@ -434,20 +512,36 @@ function parseDetailAddress(detailAddress) {
 
   if (match) {
     return {
-      raw: normalized.raw,
+      raw:
+        normalized.raw,
+
       clean,
-      pattern: "FLOOR_HO",
 
-      dongRaw: "",
-      hoRaw: match[2],
+      pattern:
+        "FLOOR_HO",
 
-      targetDong: "",
+      dongRaw:
+        "",
+
+      hoRaw:
+        match[2],
+
+      targetDong:
+        "",
+
       targetHo:
-        normalizeHoName(match[2]),
+        normalizeHoName(
+          match[2]
+        ),
 
-      floorType: "GROUND",
-      inferredFloor: null,
-      inputFloor: Number(match[1])
+      floorType:
+        "GROUND",
+
+      inferredFloor:
+        null,
+
+      inputFloor:
+        Number(match[1])
     };
   }
 
@@ -460,21 +554,36 @@ function parseDetailAddress(detailAddress) {
 
   if (match) {
     return {
-      raw: normalized.raw,
+      raw:
+        normalized.raw,
+
       clean,
+
       pattern:
         "BASEMENT_FLOOR_HO",
 
-      dongRaw: "",
-      hoRaw: match[2],
+      dongRaw:
+        "",
 
-      targetDong: "",
+      hoRaw:
+        match[2],
+
+      targetDong:
+        "",
+
       targetHo:
-        normalizeHoName(match[2]),
+        normalizeHoName(
+          match[2]
+        ),
 
-      floorType: "UNDERGROUND",
-      inferredFloor: null,
-      inputFloor: Number(match[1])
+      floorType:
+        "UNDERGROUND",
+
+      inferredFloor:
+        null,
+
+      inputFloor:
+        Number(match[1])
     };
   }
 
@@ -487,30 +596,45 @@ function parseDetailAddress(detailAddress) {
 
   if (match) {
     return {
-      raw: normalized.raw,
+      raw:
+        normalized.raw,
+
       clean,
-      pattern: "HO_ONLY",
 
-      dongRaw: "",
-      hoRaw: match[1],
+      pattern:
+        "HO_ONLY",
 
-      targetDong: "",
+      dongRaw:
+        "",
+
+      hoRaw:
+        match[1],
+
+      targetDong:
+        "",
+
       targetHo:
-        normalizeHoName(match[1]),
+        normalizeHoName(
+          match[1]
+        ),
 
-      floorType: "GROUND",
+      floorType:
+        "GROUND",
 
       inferredFloor:
         inferGroundFloorFromUnit(
           match[1]
         ),
 
-      inputFloor: null
+      inputFloor:
+        null
     };
   }
 
   return {
-    raw: normalized.raw,
+    raw:
+      normalized.raw,
+
     clean,
 
     pattern:
@@ -525,16 +649,22 @@ function parseDetailAddress(detailAddress) {
     targetHo: "",
 
     floorType: "",
-    inferredFloor: null,
-    inputFloor: null
+
+    inferredFloor:
+      null,
+
+    inputFloor:
+      null
   };
 }
 
 /* =========================================================
- * Juso 기본주소 API
+ * Juso 기본주소 조회
  * ======================================================= */
 
-async function searchJuso(keyword) {
+async function searchJuso(
+  keyword
+) {
   if (!JUSO_API_KEY) {
     throw new Error(
       "JUSO_API_KEY가 설정되지 않았습니다."
@@ -570,16 +700,21 @@ async function searchJuso(keyword) {
     "json"
   );
 
-  const response = await fetch(
-    url.toString(),
-    {
-      method: "GET",
-      signal:
-        AbortSignal.timeout(10000)
-    }
-  );
+  const response =
+    await fetch(
+      url.toString(),
+      {
+        method: "GET",
 
-  const text = await response.text();
+        signal:
+          AbortSignal.timeout(
+            10000
+          )
+      }
+    );
+
+  const text =
+    await response.text();
 
   if (!response.ok) {
     throw new Error(
@@ -602,27 +737,33 @@ function parseJusoResult(
   data
 ) {
   const common =
-    data?.results?.common || {};
+    data?.results?.common ||
+    {};
 
-  const rows = Array.isArray(
-    data?.results?.juso
-  )
-    ? data.results.juso
-    : [];
+  const rows =
+    Array.isArray(
+      data?.results?.juso
+    )
+      ? data.results.juso
+      : [];
 
-  const errorCode = String(
-    common.errorCode || ""
-  );
+  const errorCode =
+    String(
+      common.errorCode || ""
+    );
 
-  const errorMessage = String(
-    common.errorMessage || ""
-  );
+  const errorMessage =
+    String(
+      common.errorMessage ||
+      ""
+    );
 
-  const totalCount = Number(
-    common.totalCount ||
-    rows.length ||
-    0
-  );
+  const totalCount =
+    Number(
+      common.totalCount ||
+      rows.length ||
+      0
+    );
 
   if (
     errorCode &&
@@ -633,14 +774,18 @@ function parseJusoResult(
       inputAddress,
 
       matched: false,
-      status: "JUSO_API_ERROR",
+
+      status:
+        "JUSO_API_ERROR",
 
       message:
         errorMessage ||
         "Juso API 오류",
 
       totalCount: 0,
+
       selected: null,
+
       candidates: []
     };
   }
@@ -654,6 +799,7 @@ function parseJusoResult(
       inputAddress,
 
       matched: false,
+
       status:
         "BASE_ADDRESS_NOT_FOUND",
 
@@ -661,68 +807,72 @@ function parseJusoResult(
         "Juso 기본주소 검색 결과가 없습니다.",
 
       totalCount: 0,
+
       selected: null,
+
       candidates: []
     };
   }
 
-  const candidates = rows.map(
-    (row) => ({
-      roadAddr:
-        row?.roadAddr || "",
+  const candidates =
+    rows.map(
+      (row) => ({
+        roadAddr:
+          row?.roadAddr || "",
 
-      roadAddrPart1:
-        row?.roadAddrPart1 || "",
+        roadAddrPart1:
+          row?.roadAddrPart1 ||
+          "",
 
-      jibunAddr:
-        row?.jibunAddr || "",
+        jibunAddr:
+          row?.jibunAddr || "",
 
-      zipNo:
-        row?.zipNo || "",
+        zipNo:
+          row?.zipNo || "",
 
-      admCd:
-        row?.admCd || "",
+        admCd:
+          row?.admCd || "",
 
-      rnMgtSn:
-        row?.rnMgtSn || "",
+        rnMgtSn:
+          row?.rnMgtSn || "",
 
-      udrtYn:
-        row?.udrtYn || "",
+        udrtYn:
+          row?.udrtYn || "",
 
-      buldMnnm:
-        row?.buldMnnm || "",
+        buldMnnm:
+          row?.buldMnnm || "",
 
-      buldSlno:
-        row?.buldSlno || "0",
+        buldSlno:
+          row?.buldSlno || "0",
 
-      bdMgtSn:
-        row?.bdMgtSn || "",
+        bdMgtSn:
+          row?.bdMgtSn || "",
 
-      mtYn:
-        row?.mtYn || "0",
+        mtYn:
+          row?.mtYn || "0",
 
-      lnbrMnnm:
-        row?.lnbrMnnm || "",
+        lnbrMnnm:
+          row?.lnbrMnnm || "",
 
-      lnbrSlno:
-        row?.lnbrSlno || "0",
+        lnbrSlno:
+          row?.lnbrSlno || "0",
 
-      bdNm:
-        row?.bdNm || "",
+        bdNm:
+          row?.bdNm || "",
 
-      detBdNmList:
-        row?.detBdNmList || "",
+        detBdNmList:
+          row?.detBdNmList || "",
 
-      siNm:
-        row?.siNm || "",
+        siNm:
+          row?.siNm || "",
 
-      sggNm:
-        row?.sggNm || "",
+        sggNm:
+          row?.sggNm || "",
 
-      emdNm:
-        row?.emdNm || ""
-    })
-  );
+        emdNm:
+          row?.emdNm || ""
+      })
+    );
 
   return {
     orderNo,
@@ -741,31 +891,42 @@ function parseJusoResult(
         : `Juso 검색 결과 ${totalCount}건`,
 
     totalCount,
-    selected: candidates[0],
+
+    selected:
+      candidates[0],
+
     candidates
   };
 }
 
 /* =========================================================
- * 건축물대장 파라미터
+ * 건축물대장 조회 파라미터
  * ======================================================= */
 
-function buildBuildingParams(juso) {
+function buildBuildingParams(
+  juso
+) {
   const admCd = String(
     juso?.admCd || ""
   );
 
-  if (admCd.length < 10) {
+  if (
+    admCd.length < 10
+  ) {
     return {
       valid: false,
+
       reason:
         "Juso admCd 값이 없습니다."
     };
   }
 
-  if (!juso?.lnbrMnnm) {
+  if (
+    !juso?.lnbrMnnm
+  ) {
     return {
       valid: false,
+
       reason:
         "Juso 지번 본번 값이 없습니다."
     };
@@ -781,8 +942,9 @@ function buildBuildingParams(juso) {
       admCd.slice(5, 10),
 
     platGbCd:
-      String(juso?.mtYn || "0") ===
-      "1"
+      String(
+        juso?.mtYn || "0"
+      ) === "1"
         ? "1"
         : "0",
 
@@ -793,22 +955,19 @@ function buildBuildingParams(juso) {
 
     ji:
       padJibunNumber(
-        juso?.lnbrSlno || "0"
+        juso?.lnbrSlno ||
+        "0"
       )
   };
 }
 
-/*
- * 정확지번 + 대표지번 후보 생성
- *
- * 예:
- * 삼성동 159-1
- * 1차: bun=0159, ji=0001
- * 2차: bun=0159, ji=0000
- */
-function buildBuildingParamCandidates(juso) {
+function buildBuildingParamCandidates(
+  juso
+) {
   const exact =
-    buildBuildingParams(juso);
+    buildBuildingParams(
+      juso
+    );
 
   if (!exact.valid) {
     return [exact];
@@ -817,15 +976,23 @@ function buildBuildingParamCandidates(juso) {
   const candidates = [
     {
       ...exact,
+
       lookupSource:
         "JUSO_EXACT_JIBUN"
     }
   ];
 
-  if (exact.ji !== "0000") {
+  /*
+   * 159-1 → 159 대표지번
+   */
+  if (
+    exact.ji !== "0000"
+  ) {
     candidates.push({
       ...exact,
+
       ji: "0000",
+
       lookupSource:
         "MAIN_JIBUN_FALLBACK"
     });
@@ -835,7 +1002,7 @@ function buildBuildingParamCandidates(juso) {
 }
 
 /* =========================================================
- * 건축HUB 공통 호출
+ * 건축HUB API
  * ======================================================= */
 
 async function fetchBuildingHubPage(
@@ -844,7 +1011,9 @@ async function fetchBuildingHubPage(
   pageNo = 1,
   numOfRows = 100
 ) {
-  if (!PUBLIC_DATA_API_KEY) {
+  if (
+    !PUBLIC_DATA_API_KEY
+  ) {
     throw new Error(
       "PUBLIC_DATA_API_KEY가 설정되지 않았습니다."
     );
@@ -899,16 +1068,21 @@ async function fetchBuildingHubPage(
     "json"
   );
 
-  const response = await fetch(
-    url.toString(),
-    {
-      method: "GET",
-      signal:
-        AbortSignal.timeout(20000)
-    }
-  );
+  const response =
+    await fetch(
+      url.toString(),
+      {
+        method: "GET",
 
-  const text = await response.text();
+        signal:
+          AbortSignal.timeout(
+            20000
+          )
+      }
+    );
+
+  const text =
+    await response.text();
 
   if (!response.ok) {
     throw new Error(
@@ -927,21 +1101,27 @@ async function fetchBuildingHubPage(
   }
 
   const header =
-    data?.response?.header || {};
+    data?.response?.header ||
+    {};
 
-  const resultCode = String(
-    header?.resultCode || ""
-  );
+  const resultCode =
+    String(
+      header?.resultCode ||
+      ""
+    );
 
-  const resultMessage = String(
-    header?.resultMsg || ""
-  );
+  const resultMessage =
+    String(
+      header?.resultMsg ||
+      ""
+    );
 
   if (
     resultCode &&
-    !["00", "0000"].includes(
-      resultCode
-    )
+    ![
+      "00",
+      "0000"
+    ].includes(resultCode)
   ) {
     throw new Error(
       `${operation} API 오류: ${resultCode} / ${resultMessage}`
@@ -949,11 +1129,13 @@ async function fetchBuildingHubPage(
   }
 
   const body =
-    data?.response?.body || {};
+    data?.response?.body ||
+    {};
 
-  const items = toArray(
-    body?.items?.item
-  );
+  const items =
+    toArray(
+      body?.items?.item
+    );
 
   return {
     operation,
@@ -970,8 +1152,7 @@ async function fetchBuildingHubPage(
         0
       ),
 
-    items,
-    raw: data
+    items
   };
 }
 
@@ -980,13 +1161,17 @@ async function fetchAllBuildingHubItems(
   params,
   options = {}
 ) {
-  const numOfRows = Number(
-    options.numOfRows || 100
-  );
+  const numOfRows =
+    Number(
+      options.numOfRows ||
+      100
+    );
 
-  const maxPages = Number(
-    options.maxPages || 30
-  );
+  const maxPages =
+    Number(
+      options.maxPages ||
+      30
+    );
 
   const first =
     await fetchBuildingHubPage(
@@ -996,13 +1181,14 @@ async function fetchAllBuildingHubItems(
       numOfRows
     );
 
-  const allItems = [
+  const items = [
     ...first.items
   ];
 
   const realTotalPages =
     Math.max(
       1,
+
       Math.ceil(
         first.totalCount /
         numOfRows
@@ -1030,7 +1216,7 @@ async function fetchAllBuildingHubItems(
         numOfRows
       );
 
-    allItems.push(
+    items.push(
       ...page.items
     );
   }
@@ -1048,7 +1234,7 @@ async function fetchAllBuildingHubItems(
       first.totalCount,
 
     loadedCount:
-      allItems.length,
+      items.length,
 
     pageCount:
       totalPages,
@@ -1057,8 +1243,7 @@ async function fetchAllBuildingHubItems(
       totalPages <
       realTotalPages,
 
-    items:
-      allItems
+    items
   };
 }
 
@@ -1076,145 +1261,90 @@ async function searchBuildingTitlesWithFallback(
 
   const attempts = [];
 
+  const operations = [
+    "getBrTitleInfo",
+    "getBrRecapTitleInfo"
+  ];
+
   /*
-   * 1단계
-   * 정확지번·대표지번 표제부 조회
+   * 조회 순서
+   *
+   * 1. 정확지번 표제부
+   * 2. 대표지번 표제부
+   * 3. 정확지번 총괄표제부
+   * 4. 대표지번 총괄표제부
    */
-  for (const params of paramCandidates) {
-    try {
-      const result =
-        await fetchAllBuildingHubItems(
-          "getBrTitleInfo",
-          params,
-          {
-            numOfRows: 100,
-            maxPages: 10
-          }
-        );
+  for (
+    const operation
+    of operations
+  ) {
+    for (
+      const params
+      of paramCandidates
+    ) {
+      try {
+        const result =
+          await fetchAllBuildingHubItems(
+            operation,
+            params,
+            {
+              numOfRows: 100,
+              maxPages: 10
+            }
+          );
 
-      attempts.push({
-        operation:
-          "getBrTitleInfo",
-
-        lookupSource:
-          params.lookupSource,
-
-        params,
-
-        success: true,
-
-        totalCount:
-          result.totalCount
-      });
-
-      if (result.items.length > 0) {
-        return {
-          matched: true,
-
-          operation:
-            "getBrTitleInfo",
+        attempts.push({
+          operation,
 
           lookupSource:
             params.lookupSource,
 
-          matchedParams:
-            params,
-
-          attempts,
-
-          ...result
-        };
-      }
-    } catch (error) {
-      attempts.push({
-        operation:
-          "getBrTitleInfo",
-
-        lookupSource:
-          params.lookupSource,
-
-        params,
-
-        success: false,
-
-        totalCount: 0,
-
-        error:
-          error instanceof Error
-            ? error.message
-            : String(error)
-      });
-    }
-  }
-
-  /*
-   * 2단계
-   * 정확지번·대표지번 총괄표제부 조회
-   */
-  for (const params of paramCandidates) {
-    try {
-      const result =
-        await fetchAllBuildingHubItems(
-          "getBrRecapTitleInfo",
           params,
-          {
-            numOfRows: 100,
-            maxPages: 10
-          }
-        );
 
-      attempts.push({
-        operation:
-          "getBrRecapTitleInfo",
+          success: true,
 
-        lookupSource:
-          params.lookupSource,
+          totalCount:
+            result.totalCount
+        });
 
-        params,
+        if (
+          result.items.length > 0
+        ) {
+          return {
+            matched: true,
 
-        success: true,
+            operation,
 
-        totalCount:
-          result.totalCount
-      });
+            lookupSource:
+              params.lookupSource,
 
-      if (result.items.length > 0) {
-        return {
-          matched: true,
+            matchedParams:
+              params,
 
-          operation:
-            "getBrRecapTitleInfo",
+            attempts,
+
+            ...result
+          };
+        }
+      } catch (error) {
+        attempts.push({
+          operation,
 
           lookupSource:
             params.lookupSource,
 
-          matchedParams:
-            params,
+          params,
 
-          attempts,
+          success: false,
 
-          ...result
-        };
+          totalCount: 0,
+
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error)
+        });
       }
-    } catch (error) {
-      attempts.push({
-        operation:
-          "getBrRecapTitleInfo",
-
-        lookupSource:
-          params.lookupSource,
-
-        params,
-
-        success: false,
-
-        totalCount: 0,
-
-        error:
-          error instanceof Error
-            ? error.message
-            : String(error)
-      });
     }
   }
 
@@ -1231,11 +1361,15 @@ async function searchBuildingTitlesWithFallback(
     attempts,
 
     resultCode: "",
+
     resultMessage: "",
 
     totalCount: 0,
+
     loadedCount: 0,
+
     pageCount: 0,
+
     truncated: false,
 
     items: []
@@ -1251,51 +1385,59 @@ async function searchExposWithFallback(
   preferredParams,
   options = {}
 ) {
-  const allCandidates = [];
+  const candidates = [];
 
+  /*
+   * 표제부 조회에 성공한 지번 우선
+   */
   if (
     preferredParams &&
     preferredParams.valid !== false
   ) {
-    allCandidates.push({
+    candidates.push({
       ...preferredParams,
+
       lookupSource:
         preferredParams.lookupSource ||
         "TITLE_MATCHED_PARAMS"
     });
   }
 
-  const defaultCandidates =
-    buildBuildingParamCandidates(
+  /*
+   * 정확지번·대표지번도 추가
+   */
+  for (
+    const params
+    of buildBuildingParamCandidates(
       juso
-    );
-
-  for (const candidate of defaultCandidates) {
+    )
+  ) {
     const duplicate =
-      allCandidates.some(
+      candidates.some(
         (item) =>
           item.sigunguCd ===
-            candidate.sigunguCd &&
+            params.sigunguCd &&
           item.bjdongCd ===
-            candidate.bjdongCd &&
+            params.bjdongCd &&
           item.platGbCd ===
-            candidate.platGbCd &&
+            params.platGbCd &&
           item.bun ===
-            candidate.bun &&
+            params.bun &&
           item.ji ===
-            candidate.ji
+            params.ji
       );
 
     if (!duplicate) {
-      allCandidates.push(
-        candidate
-      );
+      candidates.push(params);
     }
   }
 
   const attempts = [];
 
-  for (const params of allCandidates) {
+  for (
+    const params
+    of candidates
+  ) {
     try {
       const result =
         await fetchAllBuildingHubItems(
@@ -1304,13 +1446,15 @@ async function searchExposWithFallback(
           {
             numOfRows:
               Number(
-                options.exposRowsPerPage ||
+                options
+                  .exposRowsPerPage ||
                 100
               ),
 
             maxPages:
               Number(
-                options.exposMaxPages ||
+                options
+                  .exposMaxPages ||
                 30
               )
           }
@@ -1331,7 +1475,9 @@ async function searchExposWithFallback(
           result.totalCount
       });
 
-      if (result.items.length > 0) {
+      if (
+        result.items.length > 0
+      ) {
         return {
           matched: true,
 
@@ -1380,16 +1526,21 @@ async function searchExposWithFallback(
     lookupSource:
       "ALL_LOOKUPS_FAILED",
 
-    matchedParams: null,
+    matchedParams:
+      null,
 
     attempts,
 
     resultCode: "",
+
     resultMessage: "",
 
     totalCount: 0,
+
     loadedCount: 0,
+
     pageCount: 0,
+
     truncated: false,
 
     items: []
@@ -1397,14 +1548,18 @@ async function searchExposWithFallback(
 }
 
 /* =========================================================
- * 표제부 매핑
+ * 표제부 데이터 매핑
  * ======================================================= */
 
-function mapTitleCandidate(item) {
+function mapTitleCandidate(
+  item
+) {
   return {
-    buildingPk: String(
-      item?.mgmBldrgstPk || ""
-    ),
+    buildingPk:
+      String(
+        item?.mgmBldrgstPk ||
+        ""
+      ),
 
     buildingName:
       item?.bldNm || "",
@@ -1419,19 +1574,24 @@ function mapTitleCandidate(item) {
       item?.regstrGbCdNm || "",
 
     registerKindCode:
-      item?.regstrKindCd || "",
+      item?.regstrKindCd ||
+      "",
 
     registerKindName:
-      item?.regstrKindCdNm || "",
+      item?.regstrKindCdNm ||
+      "",
 
     mainAttachCode:
-      item?.mainAtchGbCd || "",
+      item?.mainAtchGbCd ||
+      "",
 
     mainAttachName:
-      item?.mainAtchGbCdNm || "",
+      item?.mainAtchGbCdNm ||
+      "",
 
     mainPurpose:
-      item?.mainPurpsCdNm || "",
+      item?.mainPurpsCdNm ||
+      "",
 
     otherPurpose:
       item?.etcPurps || "",
@@ -1479,7 +1639,8 @@ function mapTitleCandidate(item) {
     useApprovalDate:
       item?.useAprDay || "",
 
-    raw: item
+    raw:
+      item
   };
 }
 
@@ -1495,19 +1656,24 @@ function isLikelyResidentialTitle(
       ].join(" ")
     );
 
-  return (
-    text.includes("공동주택") ||
-    text.includes("아파트") ||
-    text.includes("연립주택") ||
-    text.includes("다세대")
+  return [
+    "공동주택",
+    "아파트",
+    "연립주택",
+    "다세대"
+  ].some(
+    (word) =>
+      text.includes(word)
   );
 }
 
 /* =========================================================
- * 전유부 매핑
+ * 전유부 데이터 매핑
  * ======================================================= */
 
-function mapExposCandidate(item) {
+function mapExposCandidate(
+  item
+) {
   const dongName =
     pickFirstValue(
       item,
@@ -1545,8 +1711,8 @@ function mapExposCandidate(item) {
     );
 
   /*
-   * 전유부의 flrNo가 0인 경우가 있으므로
-   * hoNm의 "5층505호"에서 층을 보완합니다.
+   * flrNo가 0이면
+   * 5층505호에서 5층 추출
    */
   const floorNumber =
     rawFloorNumber !== null &&
@@ -1558,29 +1724,37 @@ function mapExposCandidate(item) {
     parsedFloor.floorType ||
     (
       String(
-        item?.flrGbCdNm || ""
+        item?.flrGbCdNm ||
+        ""
       ).includes("지하")
         ? "UNDERGROUND"
         : String(
-            item?.flrGbCdNm || ""
+            item?.flrGbCdNm ||
+            ""
           ).includes("지상")
           ? "GROUND"
           : ""
     );
 
   return {
-    exposPk: String(
-      item?.mgmBldrgstPk || ""
-    ),
+    exposPk:
+      String(
+        item?.mgmBldrgstPk ||
+        ""
+      ),
 
     buildingName:
       item?.bldNm || "",
 
     dongName:
-      String(dongName || ""),
+      String(
+        dongName || ""
+      ),
 
     hoName:
-      String(hoName || ""),
+      String(
+        hoName || ""
+      ),
 
     normalizedDong:
       normalizeDongName(
@@ -1602,7 +1776,8 @@ function mapExposCandidate(item) {
     floorNumber,
 
     mainPurpose:
-      item?.mainPurpsCdNm || "",
+      item?.mainPurpsCdNm ||
+      "",
 
     otherPurpose:
       item?.etcPurps || "",
@@ -1613,17 +1788,20 @@ function mapExposCandidate(item) {
       ),
 
     registerTypeName:
-      item?.regstrGbCdNm || "",
+      item?.regstrGbCdNm ||
+      "",
 
     registerKindName:
-      item?.regstrKindCdNm || "",
+      item?.regstrKindCdNm ||
+      "",
 
-    raw: item
+    raw:
+      item
   };
 }
 
 /* =========================================================
- * 전유부 동·호 매칭
+ * 전유부 동·호 비교
  * ======================================================= */
 
 function evaluateExposMatch(
@@ -1631,10 +1809,14 @@ function evaluateExposMatch(
   exposCandidates
 ) {
   const hasTargetDong =
-    Boolean(detail.targetDong);
+    Boolean(
+      detail.targetDong
+    );
 
   const hasTargetHo =
-    Boolean(detail.targetHo);
+    Boolean(
+      detail.targetHo
+    );
 
   const dongMatches = [];
   const unitMatches = [];
@@ -1647,19 +1829,17 @@ function evaluateExposMatch(
     const dongMatched =
       hasTargetDong &&
       candidate.normalizedDong ===
-      detail.targetDong;
+        detail.targetDong;
 
     const hoMatched =
       hasTargetHo &&
       candidate.normalizedHo ===
-      detail.targetHo;
+        detail.targetHo;
 
     /*
-     * 사용자가 층을 직접 입력한 경우:
-     * 11층 1001호
-     *
-     * 같은 1001호가 여러 층에 존재할 가능성을 고려해
-     * 층 정보도 함께 검사합니다.
+     * 11층 1001호처럼
+     * 층이 직접 입력된 경우
+     * 층도 함께 확인
      */
     const inputFloorMatched =
       !Number.isFinite(
@@ -1769,13 +1949,6 @@ function evaluateExposMatch(
       "전유부 데이터는 제공됐지만 입력한 동·호 또는 층 조건을 찾지 못했습니다.";
   }
 
-  const matchedExposPks =
-    exactMatches
-      .map((candidate) =>
-        candidate.exposPk
-      )
-      .filter(Boolean);
-
   return {
     checked: true,
 
@@ -1812,7 +1985,13 @@ function evaluateExposMatch(
     status,
     reason,
 
-    matchedExposPks,
+    matchedExposPks:
+      exactMatches
+        .map(
+          (candidate) =>
+            candidate.exposPk
+        )
+        .filter(Boolean),
 
     dongMatchCount:
       dongMatches.length,
@@ -1824,25 +2003,399 @@ function evaluateExposMatch(
       exactMatches.length,
 
     exactMatches:
-      exactMatches.slice(0, 30),
+      exactMatches.slice(
+        0,
+        30
+      ),
 
     dongMatches:
-      dongMatches.slice(0, 30),
+      dongMatches.slice(
+        0,
+        30
+      ),
 
     unitMatches:
-      unitMatches.slice(0, 30)
+      unitMatches.slice(
+        0,
+        30
+      )
   };
 }
 
 /* =========================================================
- * 표제부 선택
+ * 표제부 선택 보조 함수
  * ======================================================= */
+
+function normalizeRoadAddressForCompare(
+  value
+) {
+  return String(value ?? "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function calculateTitleCandidateScore(
+  candidate,
+  juso,
+  detail
+) {
+  let score = 0;
+
+  const candidateRoadAddress =
+    normalizeRoadAddressForCompare(
+      candidate.roadAddress
+    );
+
+  const jusoRoadAddress =
+    normalizeRoadAddressForCompare(
+      juso?.roadAddrPart1 ||
+      juso?.roadAddr ||
+      ""
+    );
+
+  if (
+    candidateRoadAddress &&
+    jusoRoadAddress &&
+    candidateRoadAddress ===
+      jusoRoadAddress
+  ) {
+    score += 100;
+  }
+
+  const candidateName =
+    normalizeCompareText(
+      candidate.buildingName
+    );
+
+  const candidateDongName =
+    normalizeCompareText(
+      candidate.dongName
+    );
+
+  const jusoBuildingName =
+    normalizeCompareText(
+      juso?.bdNm || ""
+    );
+
+  if (
+    candidateName &&
+    jusoBuildingName &&
+    candidateName ===
+      jusoBuildingName
+  ) {
+    score += 80;
+  } else if (
+    candidateName &&
+    jusoBuildingName &&
+    (
+      candidateName.includes(
+        jusoBuildingName
+      ) ||
+      jusoBuildingName.includes(
+        candidateName
+      )
+    )
+  ) {
+    score += 50;
+  }
+
+  if (
+    detail.targetDong &&
+    normalizeDongName(
+      candidate.dongName
+    ) === detail.targetDong
+  ) {
+    score += 80;
+  }
+
+  const inputFloor =
+    Number.isFinite(
+      detail.inputFloor
+    )
+      ? detail.inputFloor
+      : detail.inferredFloor;
+
+  if (
+    Number.isFinite(
+      inputFloor
+    )
+  ) {
+    if (
+      detail.floorType ===
+      "UNDERGROUND"
+    ) {
+      if (
+        Number.isFinite(
+          candidate
+            .undergroundFloorCount
+        ) &&
+        inputFloor <=
+          candidate
+            .undergroundFloorCount
+      ) {
+        score += 20;
+      } else {
+        score -= 50;
+      }
+    } else if (
+      Number.isFinite(
+        candidate
+          .groundFloorCount
+      ) &&
+      inputFloor <=
+        candidate
+          .groundFloorCount
+    ) {
+      score += 20;
+    } else {
+      score -= 50;
+    }
+  }
+
+  const purposeText =
+    normalizeCompareText(
+      [
+        candidate.mainPurpose,
+        candidate.otherPurpose
+      ].join(" ")
+    );
+
+  if (
+    purposeText.includes(
+      "업무시설"
+    )
+  ) {
+    score += 10;
+  }
+
+  if (
+    !candidateName &&
+    !candidateDongName
+  ) {
+    score -= 30;
+  }
+
+  return score;
+}
+
+/* =========================================================
+ * 표제부 최종 선택
+ * ======================================================= */
+
+function selectMatchedTitle(
+  titleCandidates,
+  exposMatch,
+  detail,
+  juso
+) {
+  /*
+   * 1순위:
+   * 전유부에서 동·호가 일치한 동명
+   */
+  const matchedDongNames =
+    new Set(
+      exposMatch.exactMatches
+        .map(
+          (candidate) =>
+            normalizeDongName(
+              candidate.dongName
+            )
+        )
+        .filter(Boolean)
+    );
+
+  if (
+    matchedDongNames.size > 0
+  ) {
+    const matches =
+      titleCandidates.filter(
+        (candidate) =>
+          matchedDongNames.has(
+            normalizeDongName(
+              candidate.dongName
+            )
+          )
+      );
+
+    if (
+      matches.length > 0
+    ) {
+      return {
+        source:
+          "EXPOS_DONG_UNIT_MATCH",
+
+        selected:
+          matches[0],
+
+        candidates:
+          matches
+      };
+    }
+  }
+
+  /*
+   * 2순위:
+   * 입력 동과 표제부 동명
+   */
+  if (
+    detail.targetDong
+  ) {
+    const matches =
+      titleCandidates.filter(
+        (candidate) =>
+          normalizeDongName(
+            candidate.dongName
+          ) ===
+          detail.targetDong
+      );
+
+    if (
+      matches.length > 0
+    ) {
+      return {
+        source:
+          "TITLE_DONG_MATCH",
+
+        selected:
+          matches[0],
+
+        candidates:
+          matches
+      };
+    }
+  }
+
+  /*
+   * 3순위:
+   * 도로명주소 정확 일치
+   */
+  const jusoRoadAddress =
+    normalizeRoadAddressForCompare(
+      juso?.roadAddrPart1 ||
+      juso?.roadAddr ||
+      ""
+    );
+
+  if (jusoRoadAddress) {
+    const matches =
+      titleCandidates.filter(
+        (candidate) => {
+          const candidateRoadAddress =
+            normalizeRoadAddressForCompare(
+              candidate.roadAddress
+            );
+
+          return (
+            candidateRoadAddress &&
+            candidateRoadAddress ===
+              jusoRoadAddress
+          );
+        }
+      );
+
+    if (
+      matches.length === 1
+    ) {
+      return {
+        source:
+          "ROAD_ADDRESS_EXACT_MATCH",
+
+        selected:
+          matches[0],
+
+        candidates:
+          matches
+      };
+    }
+
+    if (
+      matches.length > 1
+    ) {
+      const scored =
+        matches
+          .map(
+            (candidate) => ({
+              candidate,
+
+              score:
+                calculateTitleCandidateScore(
+                  candidate,
+                  juso,
+                  detail
+                )
+            })
+          )
+          .sort(
+            (a, b) =>
+              b.score -
+              a.score
+          );
+
+      const first =
+        scored[0];
+
+      const second =
+        scored[1];
+
+      if (
+        first &&
+        (
+          !second ||
+          first.score >
+            second.score
+        )
+      ) {
+        return {
+          source:
+            "ROAD_ADDRESS_SCORED_MATCH",
+
+          selected:
+            first.candidate,
+
+          candidates:
+            matches,
+
+          scores:
+            scored.map(
+              (item) => ({
+                buildingPk:
+                  item.candidate
+                    .buildingPk,
+
+                buildingName:
+                  item.candidate
+                    .buildingName,
+
+                dongName:
+                  item.candidate
+                    .dongName,
+
+                score:
+                  item.score
+              })
+            )
+        };
+      }
+
+      return {
+        source:
+          "ROAD_ADDRESS_MULTIPLE_MATCH",
+
+        selected:
+          null,
+
+        candidates:
+          matches
+      };
+    }
+  }
 
   /*
    * 4순위:
-   * Juso 건물명과 표제부 건물명 비교
-   *
-   * 빈 문자열은 절대 비교하지 않습니다.
+   * Juso 건물명 비교
    */
   const jusoBuildingName =
     normalizeCompareText(
@@ -1850,7 +2403,7 @@ function evaluateExposMatch(
     );
 
   if (jusoBuildingName) {
-    const buildingNameTitles =
+    const matches =
       titleCandidates.filter(
         (candidate) => {
           const candidateName =
@@ -1859,8 +2412,7 @@ function evaluateExposMatch(
             );
 
           /*
-           * 핵심 수정:
-           * 후보 건물명이 빈 문자열이면 제외
+           * 빈 문자열은 비교 금지
            */
           if (!candidateName) {
             return false;
@@ -1880,40 +2432,44 @@ function evaluateExposMatch(
       );
 
     if (
-      buildingNameTitles.length === 1
+      matches.length === 1
     ) {
       return {
         source:
           "JUSO_BUILDING_NAME_MATCH",
 
         selected:
-          buildingNameTitles[0],
+          matches[0],
 
         candidates:
-          buildingNameTitles
+          matches
       };
     }
 
     if (
-      buildingNameTitles.length > 1
+      matches.length > 1
     ) {
       return {
         source:
           "JUSO_BUILDING_NAME_MULTIPLE",
 
-        selected: null,
+        selected:
+          null,
 
         candidates:
-          buildingNameTitles
+          matches
       };
     }
   }
 
   /*
    * 5순위:
-   * 표제부 후보가 하나뿐일 경우
+   * 표제부 단일 후보
    */
-  if (titleCandidates.length === 1) {
+  if (
+    titleCandidates.length ===
+    1
+  ) {
     return {
       source:
         "SINGLE_TITLE",
@@ -1930,23 +2486,23 @@ function evaluateExposMatch(
    * 6순위:
    * 공동주택 단일 후보
    */
-  const residentialTitles =
+  const residential =
     titleCandidates.filter(
       isLikelyResidentialTitle
     );
 
   if (
-    residentialTitles.length === 1
+    residential.length === 1
   ) {
     return {
       source:
         "SINGLE_RESIDENTIAL_TITLE",
 
       selected:
-        residentialTitles[0],
+        residential[0],
 
       candidates:
-        residentialTitles
+        residential
     };
   }
 
@@ -1954,18 +2510,18 @@ function evaluateExposMatch(
     source:
       "TITLE_NOT_DETERMINED",
 
-    selected: null,
+    selected:
+      null,
 
     candidates:
-      residentialTitles.length > 0
-        ? residentialTitles
+      residential.length > 0
+        ? residential
         : titleCandidates
   };
 }
 
-
 /* =========================================================
- * 층수 결정
+ * 검증할 층 결정
  * ======================================================= */
 
 function determineFloorForCheck(
@@ -1973,13 +2529,8 @@ function determineFloorForCheck(
   exposMatch
 ) {
   /*
-   * 입력 층이 직접 있는 경우 우선
-   *
-   * 예:
-   * 11층 1001호
-   *
-   * 호명이 1001호라고 해서
-   * 반드시 10층이라고 판단하지 않습니다.
+   * 11층 1001호처럼
+   * 층이 직접 입력되면 우선
    */
   if (
     Number.isFinite(
@@ -2002,12 +2553,13 @@ function determineFloorForCheck(
    * 전유부 직접 일치 층
    */
   const exactCandidate =
-    exposMatch.exactMatches.find(
-      (candidate) =>
-        Number.isFinite(
-          candidate.floorNumber
-        )
-    );
+    exposMatch.exactMatches
+      .find(
+        (candidate) =>
+          Number.isFinite(
+            candidate.floorNumber
+          )
+      );
 
   if (exactCandidate) {
     return {
@@ -2051,7 +2603,7 @@ function determineFloorForCheck(
 }
 
 /* =========================================================
- * 층수 범위 검증
+ * 단일 표제부 층수 검증
  * ======================================================= */
 
 function evaluateSingleTitleFloor(
@@ -2082,17 +2634,20 @@ function evaluateSingleTitleFloor(
     floorInfo.floorNumber;
 
   /*
-   * 지하층 검증
+   * 지하층
    */
   if (
     floorInfo.floorType ===
     "UNDERGROUND"
   ) {
-    const maxFloor =
-      title.undergroundFloorCount;
+    const maximumFloor =
+      title
+        .undergroundFloorCount;
 
     if (
-      !Number.isFinite(maxFloor)
+      !Number.isFinite(
+        maximumFloor
+      )
     ) {
       return {
         checked: true,
@@ -2108,6 +2663,10 @@ function evaluateSingleTitleFloor(
       };
     }
 
+    const within =
+      inputFloor <=
+      maximumFloor;
+
     return {
       checked: true,
 
@@ -2116,31 +2675,34 @@ function evaluateSingleTitleFloor(
 
       inputFloor,
 
-      maximumFloor:
-        maxFloor,
+      maximumFloor,
 
       floorWithinRange:
-        inputFloor <= maxFloor,
+        within,
 
       status:
-        inputFloor <= maxFloor
+        within
           ? "FLOOR_WITHIN_RANGE"
           : "UNDERGROUND_FLOOR_OUT_OF_RANGE",
 
       reason:
-        inputFloor <= maxFloor
-          ? `입력 지하 ${inputFloor}층은 해당 건물의 지하 ${maxFloor}층 범위 안에 있습니다.`
-          : `입력 지하 ${inputFloor}층이 해당 건물의 지하층수 ${maxFloor}층을 초과합니다.`
+        within
+          ? `입력 지하 ${inputFloor}층은 해당 건물의 지하 ${maximumFloor}층 범위 안에 있습니다.`
+          : `입력 지하 ${inputFloor}층이 해당 건물의 지하층수 ${maximumFloor}층을 초과합니다.`
     };
   }
 
   /*
-   * 지상층 검증
+   * 지상층
    */
-  const maxFloor =
+  const maximumFloor =
     title.groundFloorCount;
 
-  if (!Number.isFinite(maxFloor)) {
+  if (
+    !Number.isFinite(
+      maximumFloor
+    )
+  ) {
     return {
       checked: true,
 
@@ -2155,6 +2717,10 @@ function evaluateSingleTitleFloor(
     };
   }
 
+  const within =
+    inputFloor <=
+    maximumFloor;
+
   return {
     checked: true,
 
@@ -2163,23 +2729,26 @@ function evaluateSingleTitleFloor(
 
     inputFloor,
 
-    maximumFloor:
-      maxFloor,
+    maximumFloor,
 
     floorWithinRange:
-      inputFloor <= maxFloor,
+      within,
 
     status:
-      inputFloor <= maxFloor
+      within
         ? "FLOOR_WITHIN_RANGE"
         : "GROUND_FLOOR_OUT_OF_RANGE",
 
     reason:
-      inputFloor <= maxFloor
-        ? `입력 ${inputFloor}층은 해당 건물의 지상 ${maxFloor}층 범위 안에 있습니다.`
-        : `입력 ${inputFloor}층이 해당 건물의 지상층수 ${maxFloor}층을 초과합니다.`
+      within
+        ? `입력 ${inputFloor}층은 해당 건물의 지상 ${maximumFloor}층 범위 안에 있습니다.`
+        : `입력 ${inputFloor}층이 해당 건물의 지상층수 ${maximumFloor}층을 초과합니다.`
   };
 }
+
+/* =========================================================
+ * 모든 후보 층수 검증
+ * ======================================================= */
 
 function evaluateCandidateFloorRanges(
   titleCandidates,
@@ -2196,7 +2765,8 @@ function evaluateCandidateFloorRanges(
       inputFloorType:
         floorInfo.floorType,
 
-      inputFloor: null,
+      inputFloor:
+        null,
 
       floorSource:
         floorInfo.source,
@@ -2211,14 +2781,14 @@ function evaluateCandidateFloorRanges(
     };
   }
 
-  const residentialCandidates =
+  const residential =
     titleCandidates.filter(
       isLikelyResidentialTitle
     );
 
   const targets =
-    residentialCandidates.length > 0
-      ? residentialCandidates
+    residential.length > 0
+      ? residential
       : titleCandidates;
 
   const results =
@@ -2237,7 +2807,8 @@ function evaluateCandidateFloorRanges(
           title.groundFloorCount,
 
         undergroundFloorCount:
-          title.undergroundFloorCount,
+          title
+            .undergroundFloorCount,
 
         ...evaluateSingleTitleFloor(
           title,
@@ -2249,7 +2820,8 @@ function evaluateCandidateFloorRanges(
   const comparable =
     results.filter(
       (result) =>
-        result.floorWithinRange !==
+        result
+          .floorWithinRange !==
         null
     );
 
@@ -2270,7 +2842,8 @@ function evaluateCandidateFloorRanges(
       comparable.length > 0
         ? comparable.some(
             (result) =>
-              result.floorWithinRange ===
+              result
+                .floorWithinRange ===
               true
           )
         : null,
@@ -2279,7 +2852,8 @@ function evaluateCandidateFloorRanges(
       comparable.length > 0
         ? comparable.every(
             (result) =>
-              result.floorWithinRange ===
+              result
+                .floorWithinRange ===
               true
           )
         : null,
@@ -2289,7 +2863,7 @@ function evaluateCandidateFloorRanges(
 }
 
 /* =========================================================
- * 최종 판정
+ * 최종 상태 판정
  * ======================================================= */
 
 function buildVerification(
@@ -2302,19 +2876,21 @@ function buildVerification(
   candidateFloorCheck
 ) {
   const buildingVerified =
-    jusoResult.matched === true;
+    jusoResult.matched ===
+    true;
 
   const titleVerified =
-    titleResult.matched === true;
-
-  const dongVerified =
-    exposResult.dongMatched === true;
+    titleResult.matched ===
+    true;
 
   const unitVerified =
-    exposResult.exactMatched === true;
+    exposResult.exactMatched ===
+    true;
 
   const selectedTitleVerified =
-    Boolean(titleSelection.selected);
+    Boolean(
+      titleSelection.selected
+    );
 
   let status =
     "NOT_VERIFIED";
@@ -2347,35 +2923,25 @@ function buildVerification(
         "전유부에서 동·호는 확인됐지만 표제부의 지상·지하 층수와 충돌합니다.";
     } else {
       status =
-        "DONG_UNIT_VERIFIED";
+        exposResult.status ===
+        "UNIT_VERIFIED"
+          ? "UNIT_VERIFIED"
+          : "DONG_UNIT_VERIFIED";
 
       reason =
-        "전유부에서 입력한 동·호가 확인되었습니다.";
+        exposResult.reason;
     }
   } else if (
-    exposResult.status ===
-    "DONG_VERIFIED_UNIT_NOT_FOUND"
+    [
+      "DONG_VERIFIED_UNIT_NOT_FOUND",
+      "UNIT_VERIFIED_DONG_NOT_FOUND",
+      "DONG_UNIT_NOT_FOUND"
+    ].includes(
+      exposResult.status
+    )
   ) {
     status =
-      "DONG_VERIFIED_UNIT_NOT_FOUND";
-
-    reason =
-      exposResult.reason;
-  } else if (
-    exposResult.status ===
-    "UNIT_VERIFIED_DONG_NOT_FOUND"
-  ) {
-    status =
-      "UNIT_VERIFIED_DONG_NOT_FOUND";
-
-    reason =
-      exposResult.reason;
-  } else if (
-    exposResult.status ===
-    "DONG_UNIT_NOT_FOUND"
-  ) {
-    status =
-      "DONG_UNIT_NOT_FOUND";
+      exposResult.status;
 
     reason =
       exposResult.reason;
@@ -2487,7 +3053,9 @@ function buildVerification(
     exposDataProvided:
       exposResult.dataProvided,
 
-    dongVerified,
+    dongVerified:
+      exposResult.dongMatched,
+
     unitVerified,
 
     selectedTitleVerified,
@@ -2496,21 +3064,19 @@ function buildVerification(
       titleSelection.selected
         ?.buildingPk || "",
 
+    selectedBuildingName:
+      titleSelection.selected
+        ?.buildingName || "",
+
     selectedDongName:
       titleSelection.selected
         ?.dongName || "",
 
-    /*
-     * 최종 선택 건물 지상층수
-     */
     groundFloorCount:
       titleSelection.selected
         ?.groundFloorCount ??
       null,
 
-    /*
-     * 최종 선택 건물 지하층수
-     */
     undergroundFloorCount:
       titleSelection.selected
         ?.undergroundFloorCount ??
@@ -2594,10 +3160,17 @@ async function validateOneAddress(
       detailAddress,
 
       verification: {
-        buildingVerified: false,
-        titleVerified: false,
-        dongVerified: false,
-        unitVerified: false,
+        buildingVerified:
+          false,
+
+        titleVerified:
+          false,
+
+        dongVerified:
+          false,
+
+        unitVerified:
+          false,
 
         status:
           "EMPTY_BASE_ADDRESS",
@@ -2636,10 +3209,17 @@ async function validateOneAddress(
       jusoResult,
 
       verification: {
-        buildingVerified: false,
-        titleVerified: false,
-        dongVerified: false,
-        unitVerified: false,
+        buildingVerified:
+          false,
+
+        titleVerified:
+          false,
+
+        dongVerified:
+          false,
+
+        unitVerified:
+          false,
 
         status:
           jusoResult.status,
@@ -2651,14 +3231,16 @@ async function validateOneAddress(
   }
 
   /*
-   * 2. 기본 지번 파라미터
+   * 2. 지번 파라미터
    */
   const buildingParams =
     buildBuildingParams(
       jusoResult.selected
     );
 
-  if (!buildingParams.valid) {
+  if (
+    !buildingParams.valid
+  ) {
     return {
       orderNo,
       baseAddress,
@@ -2669,10 +3251,17 @@ async function validateOneAddress(
       buildingParams,
 
       verification: {
-        buildingVerified: true,
-        titleVerified: false,
-        dongVerified: false,
-        unitVerified: false,
+        buildingVerified:
+          true,
+
+        titleVerified:
+          false,
+
+        dongVerified:
+          false,
+
+        unitVerified:
+          false,
 
         status:
           "BUILDING_PARAMS_MISSING",
@@ -2684,11 +3273,7 @@ async function validateOneAddress(
   }
 
   /*
-   * 3. 표제부 조회
-   *
-   * 정확지번 → 대표지번
-   * → 총괄표제부 정확지번
-   * → 총괄표제부 대표지번
+   * 3. 표제부·총괄표제부 폴백 조회
    */
   const titleRawResult =
     await searchBuildingTitlesWithFallback(
@@ -2704,9 +3289,11 @@ async function validateOneAddress(
     Boolean(
       titleRawResult.matched &&
       (
-        titleRawResult.lookupSource !==
+        titleRawResult
+          .lookupSource !==
           "JUSO_EXACT_JIBUN" ||
-        titleRawResult.operation !==
+        titleRawResult
+          .operation !==
           "getBrTitleInfo"
       )
     );
@@ -2756,7 +3343,8 @@ async function validateOneAddress(
           ...candidate,
 
           raw:
-            options.includeRaw === true
+            options.includeRaw ===
+            true
               ? candidate.raw
               : undefined
         })
@@ -2764,21 +3352,21 @@ async function validateOneAddress(
   };
 
   /*
-   * 4. 전유부 조회
-   *
-   * 표제부가 성공한 지번을 우선 사용하고,
-   * 실패하면 정확지번·대표지번을 순차 조회합니다.
+   * 4. 전유부 폴백 조회
    */
   const exposRawResult =
     await searchExposWithFallback(
       jusoResult.selected,
-      titleRawResult.matchedParams,
+      titleRawResult
+        .matchedParams,
       {
         exposRowsPerPage:
-          options.exposRowsPerPage,
+          options
+            .exposRowsPerPage,
 
         exposMaxPages:
-          options.exposMaxPages
+          options
+            .exposMaxPages
       }
     );
 
@@ -2788,7 +3376,7 @@ async function validateOneAddress(
     );
 
   /*
-   * 5. 상세주소 비교
+   * 5. 동·호·층 비교
    */
   const exposMatch =
     evaluateExposMatch(
@@ -2827,501 +3415,29 @@ async function validateOneAddress(
       exposCandidates
         .slice(
           0,
-          options.includeAllExpos ===
+
+          options
+            .includeAllExpos ===
           true
             ? exposCandidates.length
             : 100
         )
-        .map((candidate) => ({
-          ...candidate,
+        .map(
+          (candidate) => ({
+            ...candidate,
 
-          raw:
-            options.includeRaw === true
-              ? candidate.raw
-              : undefined
-        }))
-  };
-
-function selectMatchedTitle(
-  titleCandidates,
-  exposMatch,
-  detail,
-  juso
-) {
-  /*
-   * 1순위:
-   * 전유부에서 동·호가 일치한 동명으로 표제부 선택
-   */
-  const matchedDongNames =
-    new Set(
-      exposMatch.exactMatches
-        .map((candidate) =>
-          normalizeDongName(
-            candidate.dongName
-          )
+            raw:
+              options.includeRaw ===
+              true
+                ? candidate.raw
+                : undefined
+          })
         )
-        .filter(Boolean)
-    );
-
-  if (matchedDongNames.size > 0) {
-    const exposDongTitles =
-      titleCandidates.filter(
-        (candidate) =>
-          matchedDongNames.has(
-            normalizeDongName(
-              candidate.dongName
-            )
-          )
-      );
-
-    if (exposDongTitles.length > 0) {
-      return {
-        source:
-          "EXPOS_DONG_UNIT_MATCH",
-
-        selected:
-          exposDongTitles[0],
-
-        candidates:
-          exposDongTitles
-      };
-    }
-  }
-
-  /*
-   * 2순위:
-   * 입력 동과 표제부 동명 일치
-   */
-  if (detail.targetDong) {
-    const dongTitles =
-      titleCandidates.filter(
-        (candidate) =>
-          normalizeDongName(
-            candidate.dongName
-          ) ===
-          detail.targetDong
-      );
-
-    if (dongTitles.length > 0) {
-      return {
-        source:
-          "TITLE_DONG_MATCH",
-
-        selected:
-          dongTitles[0],
-
-        candidates:
-          dongTitles
-      };
-    }
-  }
-
-  /*
-   * 3순위:
-   * Juso 도로명주소와 표제부 도로명주소 정확 비교
-   *
-   * 대형 복합대지에서는 동일 지번에 건물이 여러 개 있으므로
-   * 건물명보다 도로명주소 일치를 우선합니다.
-   */
-  const jusoRoadAddress =
-    normalizeRoadAddressForCompare(
-      juso?.roadAddrPart1 ||
-      juso?.roadAddr ||
-      ""
-    );
-
-  if (jusoRoadAddress) {
-    const roadAddressMatches =
-      titleCandidates.filter(
-        (candidate) => {
-          const candidateRoadAddress =
-            normalizeRoadAddressForCompare(
-              candidate.roadAddress
-            );
-
-          return (
-            candidateRoadAddress &&
-            candidateRoadAddress ===
-              jusoRoadAddress
-          );
-        }
-      );
-
-    /*
-     * 도로명주소가 하나만 일치하면 바로 선택
-     */
-    if (
-      roadAddressMatches.length === 1
-    ) {
-      return {
-        source:
-          "ROAD_ADDRESS_EXACT_MATCH",
-
-        selected:
-          roadAddressMatches[0],
-
-        candidates:
-          roadAddressMatches
-      };
-    }
-
-    /*
-     * 같은 도로명주소 후보가 여러 개라면
-     * 건물명·용도·층수 점수로 선택
-     */
-    if (
-      roadAddressMatches.length > 1
-    ) {
-      const scoredMatches =
-        roadAddressMatches
-          .map((candidate) => ({
-            candidate,
-
-            score:
-              calculateTitleCandidateScore(
-                candidate,
-                juso,
-                detail
-              )
-          }))
-          .sort(
-            (a, b) =>
-              b.score - a.score
-          );
-
-      if (
-        scoredMatches.length > 0 &&
-        scoredMatches[0].score >
-          scoredMatches[1]?.score
-      ) {
-        return {
-          source:
-            "ROAD_ADDRESS_SCORED_MATCH",
-
-          selected:
-            scoredMatches[0]
-              .candidate,
-
-          candidates:
-            roadAddressMatches,
-
-          scores:
-            scoredMatches.map(
-              (item) => ({
-                buildingPk:
-                  item.candidate
-                    .buildingPk,
-
-                buildingName:
-                  item.candidate
-                    .buildingName,
-
-                dongName:
-                  item.candidate
-                    .dongName,
-
-                score:
-                  item.score
-              })
-            )
-        };
-      }
-
-      return {
-        source:
-          "ROAD_ADDRESS_MULTIPLE_MATCH",
-
-        selected: null,
-
-        candidates:
-          roadAddressMatches
-      };
-    }
-  }
-
-  /*
-   * 4순위:
-   * Juso 건물명과 표제부 건물명 비교
-   *
-   * 빈 문자열은 절대 비교하지 않습니다.
-   */
-  const jusoBuildingName =
-    normalizeCompareText(
-      juso?.bdNm || ""
-    );
-
-  if (jusoBuildingName) {
-    const buildingNameTitles =
-      titleCandidates.filter(
-        (candidate) => {
-          const candidateName =
-            normalizeCompareText(
-              candidate.buildingName
-            );
-
-          /*
-           * 핵심 수정:
-           * 후보 건물명이 빈 문자열이면 제외
-           */
-          if (!candidateName) {
-            return false;
-          }
-
-          return (
-            candidateName ===
-              jusoBuildingName ||
-            candidateName.includes(
-              jusoBuildingName
-            ) ||
-            jusoBuildingName.includes(
-              candidateName
-            )
-          );
-        }
-      );
-
-    if (
-      buildingNameTitles.length === 1
-    ) {
-      return {
-        source:
-          "JUSO_BUILDING_NAME_MATCH",
-
-        selected:
-          buildingNameTitles[0],
-
-        candidates:
-          buildingNameTitles
-      };
-    }
-
-    if (
-      buildingNameTitles.length > 1
-    ) {
-      return {
-        source:
-          "JUSO_BUILDING_NAME_MULTIPLE",
-
-        selected: null,
-
-        candidates:
-          buildingNameTitles
-      };
-    }
-  }
-
-  /*
-   * 5순위:
-   * 표제부 후보가 하나뿐일 경우
-   */
-  if (titleCandidates.length === 1) {
-    return {
-      source:
-        "SINGLE_TITLE",
-
-      selected:
-        titleCandidates[0],
-
-      candidates:
-        titleCandidates
-    };
-  }
-
-  /*
-   * 6순위:
-   * 공동주택 단일 후보
-   */
-  const residentialTitles =
-    titleCandidates.filter(
-      isLikelyResidentialTitle
-    );
-
-  if (
-    residentialTitles.length === 1
-  ) {
-    return {
-      source:
-        "SINGLE_RESIDENTIAL_TITLE",
-
-      selected:
-        residentialTitles[0],
-
-      candidates:
-        residentialTitles
-    };
-  }
-
-  return {
-    source:
-      "TITLE_NOT_DETERMINED",
-
-    selected: null,
-
-    candidates:
-      residentialTitles.length > 0
-        ? residentialTitles
-        : titleCandidates
   };
-}  
+
   /*
-   * 6. 표제부 최종 선택
+   * 6. 최종 표제부 선택
    */
-
-/* =========================================================
- * 표제부 선택 보조 함수
- * ======================================================= */
-  
-function normalizeRoadAddressForCompare(value) {
-  return String(value ?? "")
-    .replace(/\([^)]*\)/g, "")
-    .replace(/\u00a0/g, " ")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
-function calculateTitleCandidateScore(
-  candidate,
-  juso,
-  detail
-) {
-  let score = 0;
-
-  const candidateRoadAddress =
-    normalizeRoadAddressForCompare(
-      candidate.roadAddress
-    );
-
-  const jusoRoadAddress =
-    normalizeRoadAddressForCompare(
-      juso?.roadAddrPart1 ||
-      juso?.roadAddr ||
-      ""
-    );
-
-  if (
-    candidateRoadAddress &&
-    jusoRoadAddress &&
-    candidateRoadAddress ===
-      jusoRoadAddress
-  ) {
-    score += 100;
-  }
-
-  const candidateName =
-    normalizeCompareText(
-      candidate.buildingName
-    );
-
-  const candidateDongName =
-    normalizeCompareText(
-      candidate.dongName
-    );
-
-  const jusoBuildingName =
-    normalizeCompareText(
-      juso?.bdNm || ""
-    );
-
-  if (
-    candidateName &&
-    jusoBuildingName &&
-    candidateName ===
-      jusoBuildingName
-  ) {
-    score += 80;
-  } else if (
-    candidateName &&
-    jusoBuildingName &&
-    (
-      candidateName.includes(
-        jusoBuildingName
-      ) ||
-      jusoBuildingName.includes(
-        candidateName
-      )
-    )
-  ) {
-    score += 50;
-  }
-
-  if (
-    detail.targetDong &&
-    normalizeDongName(
-      candidate.dongName
-    ) === detail.targetDong
-  ) {
-    score += 80;
-  }
-
-  const inputFloor =
-    Number.isFinite(
-      detail.inputFloor
-    )
-      ? detail.inputFloor
-      : detail.inferredFloor;
-
-  if (
-    Number.isFinite(inputFloor)
-  ) {
-    if (
-      detail.floorType ===
-        "UNDERGROUND"
-    ) {
-      if (
-        Number.isFinite(
-          candidate
-            .undergroundFloorCount
-        ) &&
-        inputFloor <=
-          candidate
-            .undergroundFloorCount
-      ) {
-        score += 20;
-      } else {
-        score -= 50;
-      }
-    } else {
-      if (
-        Number.isFinite(
-          candidate
-            .groundFloorCount
-        ) &&
-        inputFloor <=
-          candidate
-            .groundFloorCount
-      ) {
-        score += 20;
-      } else {
-        score -= 50;
-      }
-    }
-  }
-
-  const purposeText =
-    normalizeCompareText(
-      [
-        candidate.mainPurpose,
-        candidate.otherPurpose
-      ].join(" ")
-    );
-
-  if (
-    purposeText.includes("업무시설")
-  ) {
-    score += 10;
-  }
-
-  if (
-    !candidateName &&
-    !candidateDongName
-  ) {
-    score -= 30;
-  }
-
-  return score;
-}
-  
   const titleSelection =
     selectMatchedTitle(
       titleCandidates,
@@ -3331,7 +3447,7 @@ function calculateTitleCandidateScore(
     );
 
   /*
-   * 7. 검증할 층 결정
+   * 7. 검증 층 결정
    */
   const floorInfo =
     determineFloorForCheck(
@@ -3340,7 +3456,7 @@ function calculateTitleCandidateScore(
     );
 
   /*
-   * 8. 선택된 건물의 지상·지하 층수와 비교
+   * 8. 선택 건물 층수 비교
    */
   const selectedFloorCheck =
     evaluateSingleTitleFloor(
@@ -3349,7 +3465,7 @@ function calculateTitleCandidateScore(
     );
 
   /*
-   * 9. 선택 건물이 없으면 후보 전체 비교
+   * 9. 전체 후보 층수 비교
    */
   const candidateFloorCheck =
     evaluateCandidateFloorRanges(
@@ -3358,7 +3474,7 @@ function calculateTitleCandidateScore(
     );
 
   /*
-   * 10. 최종 판정
+   * 10. 최종 검증
    */
   const verification =
     buildVerification(
@@ -3385,19 +3501,24 @@ function calculateTitleCandidateScore(
         buildingParams,
 
       lookupOperation:
-        titleResult.lookupOperation,
+        titleResult
+          .lookupOperation,
 
       lookupSource:
-        titleResult.lookupSource,
+        titleResult
+          .lookupSource,
 
       fallbackUsed:
-        titleResult.usedFallback,
+        titleResult
+          .usedFallback,
 
       matchedParams:
-        titleResult.matchedParams,
+        titleResult
+          .matchedParams,
 
       lookupAttempts:
-        titleResult.lookupAttempts,
+        titleResult
+          .lookupAttempts,
 
       checked:
         titleResult.checked,
@@ -3426,23 +3547,27 @@ function calculateTitleCandidateScore(
       selectedSource:
         titleSelection.source,
 
+      selectionScores:
+        titleSelection.scores ||
+        [],
+
       selected:
         titleSelection.selected
           ? {
-              ...titleSelection.selected,
+              ...titleSelection
+                .selected,
 
               raw:
                 options.includeRaw ===
                 true
                   ? titleSelection
-                      .selected
-                      .raw
+                      .selected.raw
                   : undefined
             }
           : null,
 
       /*
-       * 표제부 후보별 지상·지하 층수 유지
+       * 후보별 지상·지하층수
        */
       floorCandidates:
         titleCandidates.map(
@@ -3455,6 +3580,9 @@ function calculateTitleCandidateScore(
 
             buildingName:
               candidate.buildingName,
+
+            roadAddress:
+              candidate.roadAddress,
 
             groundFloorCount:
               candidate
@@ -3494,187 +3622,150 @@ function calculateTitleCandidateScore(
  * 기본 경로
  * ======================================================= */
 
-app.get("/", (req, res) => {
-  return res.json({
-    ok: true,
+app.get(
+  "/",
+  (req, res) => {
+    return res.json({
+      ok: true,
 
-    service:
-      "address-validator-api",
+      service:
+        "address-validator-api",
 
-    step: 4,
+      step: 4,
 
-    process: [
-      "JUSO_BASIC_ADDRESS",
+      process: [
+        "JUSO_BASIC_ADDRESS",
 
-      "BUILDING_REGISTER_EXACT_TITLE",
+        "BUILDING_REGISTER_EXACT_TITLE",
 
-      "BUILDING_REGISTER_MAIN_JIBUN_FALLBACK",
+        "BUILDING_REGISTER_MAIN_JIBUN_FALLBACK",
 
-      "BUILDING_REGISTER_RECAP_TITLE_FALLBACK",
+        "BUILDING_REGISTER_RECAP_TITLE_FALLBACK",
 
-      "BUILDING_GROUND_UNDERGROUND_FLOORS",
+        "BUILDING_GROUND_UNDERGROUND_FLOORS",
 
-      "BUILDING_REGISTER_EXPOS",
+        "BUILDING_REGISTER_EXPOS",
 
-      "DONG_UNIT_FLOOR_MATCH",
+        "DONG_UNIT_FLOOR_MATCH",
 
-      "FINAL_VERIFICATION"
-    ],
+        "FINAL_VERIFICATION"
+      ],
 
-    message:
-      "Address validator API is running"
-  });
-});
+      message:
+        "Address validator API is running"
+    });
+  }
+);
 
-app.get("/health", (req, res) => {
-  return res.json({
-    ok: true,
+app.get(
+  "/health",
+  (req, res) => {
+    return res.json({
+      ok: true,
 
-    service:
-      "address-validator-api",
+      service:
+        "address-validator-api",
 
-    step: 4,
+      step: 4,
 
-    jusoApiConfigured:
-      Boolean(JUSO_API_KEY),
+      jusoApiConfigured:
+        Boolean(
+          JUSO_API_KEY
+        ),
 
-    publicDataApiConfigured:
-      Boolean(
-        PUBLIC_DATA_API_KEY
-      ),
+      publicDataApiConfigured:
+        Boolean(
+          PUBLIC_DATA_API_KEY
+        ),
 
-    timestamp:
-      new Date().toISOString()
-  });
-});
+      timestamp:
+        new Date()
+          .toISOString()
+    });
+  }
+);
 
 /* =========================================================
- * 단일 주소 디버그
+ * 단일 디버그 API
  * ======================================================= */
+
+async function debugHandler(
+  req,
+  res
+) {
+  try {
+    const result =
+      await validateOneAddress(
+        {
+          orderNo:
+            req.body?.orderNo ||
+            "DEBUG",
+
+          baseAddress:
+            req.body?.baseAddress,
+
+          detailAddress:
+            req.body
+              ?.detailAddress
+        },
+        {
+          includeRaw:
+            req.body
+              ?.includeRaw ===
+            true,
+
+          includeAllExpos:
+            req.body
+              ?.includeAllExpos ===
+            true,
+
+          exposRowsPerPage:
+            req.body
+              ?.exposRowsPerPage ||
+            100,
+
+          exposMaxPages:
+            req.body
+              ?.exposMaxPages ||
+            30
+        }
+      );
+
+    return res.json({
+      ok: true,
+
+      ...result
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res
+      .status(500)
+      .json({
+        ok: false,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : String(error)
+      });
+  }
+}
 
 app.post(
   "/debug-address",
   checkSecret,
-  async (req, res) => {
-    try {
-      const result =
-        await validateOneAddress(
-          {
-            orderNo:
-              req.body?.orderNo ||
-              "DEBUG",
-
-            baseAddress:
-              req.body?.baseAddress,
-
-            detailAddress:
-              req.body?.detailAddress
-          },
-          {
-            includeRaw:
-              req.body?.includeRaw ===
-              true,
-
-            includeAllExpos:
-              req.body
-                ?.includeAllExpos ===
-              true,
-
-            exposRowsPerPage:
-              req.body
-                ?.exposRowsPerPage ||
-              100,
-
-            exposMaxPages:
-              req.body
-                ?.exposMaxPages ||
-              30
-          }
-        );
-
-      return res.json({
-        ok: true,
-        ...result
-      });
-    } catch (error) {
-      console.error(error);
-
-      return res.status(500).json({
-        ok: false,
-
-        message:
-          error instanceof Error
-            ? error.message
-            : String(error)
-      });
-    }
-  }
+  debugHandler
 );
 
-/*
- * 기존 URL 유지
- */
 app.post(
   "/debug-juso-detail-list",
   checkSecret,
-  async (req, res) => {
-    try {
-      const result =
-        await validateOneAddress(
-          {
-            orderNo:
-              req.body?.orderNo ||
-              "DEBUG",
-
-            baseAddress:
-              req.body?.baseAddress,
-
-            detailAddress:
-              req.body?.detailAddress
-          },
-          {
-            includeRaw:
-              req.body?.includeRaw ===
-              true,
-
-            includeAllExpos:
-              req.body
-                ?.includeAllExpos ===
-              true,
-
-            exposRowsPerPage:
-              req.body
-                ?.exposRowsPerPage ||
-              100,
-
-            exposMaxPages:
-              req.body
-                ?.exposMaxPages ||
-              30
-          }
-        );
-
-      return res.json({
-        ok: true,
-        ...result
-      });
-    } catch (error) {
-      console.error(error);
-
-      return res.status(500).json({
-        ok: false,
-
-        message:
-          error instanceof Error
-            ? error.message
-            : String(error)
-      });
-    }
-  }
+  debugHandler
 );
 
 /* =========================================================
- * 일괄 검증
+ * 일괄 검증 API
  * ======================================================= */
 
 app.post(
@@ -3689,31 +3780,41 @@ app.post(
           ? req.body.items
           : [];
 
-      if (items.length === 0) {
-        return res.status(400).json({
-          ok: false,
+      if (
+        items.length === 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
 
-          message:
-            "items 배열이 필요합니다."
-        });
+            message:
+              "items 배열이 필요합니다."
+          });
       }
 
       /*
-       * 전유부·폴백 조회는 호출 수가 많을 수 있으므로
-       * 일단 요청당 10건 제한
+       * 공공 API 호출 수 제한
        */
-      if (items.length > 10) {
-        return res.status(400).json({
-          ok: false,
+      if (
+        items.length > 10
+      ) {
+        return res
+          .status(400)
+          .json({
+            ok: false,
 
-          message:
-            "한 번에 최대 10건까지만 허용합니다."
-        });
+            message:
+              "한 번에 최대 10건까지만 허용합니다."
+          });
       }
 
       const results = [];
 
-      for (const item of items) {
+      for (
+        const item
+        of items
+      ) {
         try {
           const result =
             await validateOneAddress(
@@ -3739,7 +3840,9 @@ app.post(
               }
             );
 
-          results.push(result);
+          results.push(
+            result
+          );
         } catch (error) {
           results.push({
             orderNo:
@@ -3749,19 +3852,28 @@ app.post(
 
             baseAddress:
               cleanText(
-                item?.baseAddress
+                item
+                  ?.baseAddress
               ),
 
             detailAddress:
               normalizeDetailAddress(
-                item?.detailAddress
+                item
+                  ?.detailAddress
               ).clean,
 
             verification: {
-              buildingVerified: false,
-              titleVerified: false,
-              dongVerified: false,
-              unitVerified: false,
+              buildingVerified:
+                false,
+
+              titleVerified:
+                false,
+
+              dongVerified:
+                false,
+
+              unitVerified:
+                false,
 
               status:
                 "REQUEST_ERROR",
@@ -3788,14 +3900,16 @@ app.post(
     } catch (error) {
       console.error(error);
 
-      return res.status(500).json({
-        ok: false,
+      return res
+        .status(500)
+        .json({
+          ok: false,
 
-        message:
-          error instanceof Error
-            ? error.message
-            : String(error)
-      });
+          message:
+            error instanceof Error
+              ? error.message
+              : String(error)
+        });
     }
   }
 );
@@ -3804,46 +3918,61 @@ app.post(
  * 404
  * ======================================================= */
 
-app.use((req, res) => {
-  return res.status(404).json({
-    ok: false,
+app.use(
+  (req, res) => {
+    return res
+      .status(404)
+      .json({
+        ok: false,
 
-    message:
-      "요청한 API 경로가 없습니다."
-  });
-});
+        message:
+          "요청한 API 경로가 없습니다."
+      });
+  }
+);
 
 /* =========================================================
- * 오류 처리
+ * 공통 오류 처리
  * ======================================================= */
 
 app.use(
-  (error, req, res, next) => {
+  (
+    error,
+    req,
+    res,
+    next
+  ) => {
     console.error(error);
 
     if (
       error?.message ===
       "허용되지 않은 Origin입니다."
     ) {
-      return res.status(403).json({
-        ok: false,
-        message: error.message
-      });
+      return res
+        .status(403)
+        .json({
+          ok: false,
+
+          message:
+            error.message
+        });
     }
 
-    return res.status(500).json({
-      ok: false,
+    return res
+      .status(500)
+      .json({
+        ok: false,
 
-      message:
-        error instanceof Error
-          ? error.message
-          : "서버 내부 오류가 발생했습니다."
-    });
+        message:
+          error instanceof Error
+            ? error.message
+            : "서버 내부 오류가 발생했습니다."
+      });
   }
 );
 
 /* =========================================================
- * Railway 실행
+ * Railway 서버 실행
  * ======================================================= */
 
 app.listen(
