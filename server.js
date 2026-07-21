@@ -1172,7 +1172,7 @@ async function searchExposWithFallback(
               Number(
                 options
                   .exposMaxPages ||
-                30
+                3
               )
           }
         );
@@ -3424,7 +3424,7 @@ app.post(
 
             exposMaxPages:
               req.body?.exposMaxPages ||
-              30
+              3
           }
         );
 
@@ -3528,7 +3528,7 @@ app.post(
 
                 exposMaxPages:
                   req.body?.exposMaxPages ||
-                  30
+                  3
               }
             );
 
