@@ -227,12 +227,12 @@
               >
                 파일 업로드 준비 중...
               </span>
-
+            
               <strong
-                id="progressPercent"
+                id="progressCount"
                 class="progress-percent"
               >
-                0%
+                0/0개 · 0%
               </strong>
             </div>
 
@@ -254,41 +254,76 @@
   </main>
 
   <script>
-    (function () {
-      "use strict";
+  (function () {
+    "use strict";
 
-      const form =
-        document.getElementById("uploadForm");
+    const form =
+      document.getElementById(
+        "uploadForm"
+      );
 
-      const fileInput =
-        document.getElementById("excelFile");
+    const fileInput =
+      document.getElementById(
+        "excelFile"
+      );
 
-      const button =
-        document.getElementById("submitButton");
+    const button =
+      document.getElementById(
+        "submitButton"
+      );
 
-      const statusBox =
-        document.getElementById("status");
+    const statusBox =
+      document.getElementById(
+        "status"
+      );
 
-      const progressArea =
-        document.getElementById("progressArea");
+    const progressArea =
+      document.getElementById(
+        "progressArea"
+      );
 
-      const progressText =
-        document.getElementById("progressText");
+    const progressText =
+      document.getElementById(
+        "progressText"
+      );
 
-      const progressPercent =
-        document.getElementById("progressPercent");
+    const progressCount =
+      document.getElementById(
+        "progressCount"
+      );
 
-      const progressBar =
-        document.getElementById("progressBar");
+    const progressBar =
+      document.getElementById(
+        "progressBar"
+      );
 
-      let progressTimer = null;
-      let currentProgress = 0;
+    let pollingStopped =
+      false;
 
-      function setProgress(
-        percent,
-        message
-      ) {
-        currentProgress = Math.max(
+    /* =====================================================
+     * 공통 표시
+     * =================================================== */
+
+    function setProgress(
+      current,
+      total,
+      percent,
+      message
+    ) {
+      const safeCurrent =
+        Math.max(
+          0,
+          Number(current) || 0
+        );
+
+      const safeTotal =
+        Math.max(
+          0,
+          Number(total) || 0
+        );
+
+      const safePercent =
+        Math.max(
           0,
           Math.min(
             100,
@@ -296,333 +331,437 @@
           )
         );
 
-        progressArea.hidden = false;
+      progressArea.hidden =
+        false;
 
-        progressBar.style.width =
-          `${currentProgress}%`;
+      progressBar.style.width =
+        `${safePercent}%`;
 
-        progressPercent.textContent =
-          `${Math.round(currentProgress)}%`;
+      progressCount.textContent =
+        `${safeCurrent}/${safeTotal}개 · ${Math.round(safePercent)}%`;
 
-        if (message) {
-          progressText.textContent =
-            message;
-        }
-      }
-
-      function resetProgress() {
-        clearProgressTimer();
-
-        currentProgress = 0;
-
-        progressArea.hidden = false;
-
-        progressArea.classList.remove(
-          "is-success",
-          "is-error"
-        );
-
-        progressBar.style.width =
-          "0%";
-
-        progressPercent.textContent =
-          "0%";
-
+      if (message) {
         progressText.textContent =
-          "파일 업로드 준비 중...";
+          message;
       }
+    }
 
-      function clearProgressTimer() {
-        if (progressTimer) {
-          clearInterval(
-            progressTimer
+    function resetProgress() {
+      pollingStopped =
+        false;
+
+      progressArea.hidden =
+        false;
+
+      progressArea.classList.remove(
+        "is-success",
+        "is-error"
+      );
+
+      progressBar.style.width =
+        "0%";
+
+      progressCount.textContent =
+        "0/0개 · 0%";
+
+      progressText.textContent =
+        "파일 업로드 준비 중...";
+
+      statusBox.className =
+        "status";
+
+      statusBox.textContent =
+        "";
+    }
+
+    function wait(
+      milliseconds
+    ) {
+      return new Promise(
+        function (resolve) {
+          setTimeout(
+            resolve,
+            milliseconds
           );
-
-          progressTimer = null;
-        }
-      }
-
-      function startAnalysisProgress() {
-        clearProgressTimer();
-
-        progressTimer = setInterval(
-          function () {
-            if (
-              currentProgress < 35
-            ) {
-              currentProgress += 3;
-            } else if (
-              currentProgress < 65
-            ) {
-              currentProgress += 1.7;
-            } else if (
-              currentProgress < 82
-            ) {
-              currentProgress += 0.8;
-            } else if (
-              currentProgress < 92
-            ) {
-              currentProgress += 0.25;
-            }
-
-            setProgress(
-              currentProgress,
-              currentProgress < 35
-                ? "엑셀 파일을 읽고 있습니다..."
-                : currentProgress < 82
-                  ? "주소를 분석하고 있습니다..."
-                  : "결과 엑셀을 생성하고 있습니다..."
-            );
-          },
-          500
-        );
-      }
-
-      function getDownloadFileName(
-        response
-      ) {
-        const disposition =
-          response.headers.get(
-            "content-disposition"
-          ) || "";
-
-        const utf8Match =
-          disposition.match(
-            /filename\*=UTF-8''([^;]+)/i
-          );
-
-        if (utf8Match) {
-          try {
-            return decodeURIComponent(
-              utf8Match[1]
-            );
-          } catch (error) {
-            console.warn(
-              "파일명 디코딩 실패:",
-              error
-            );
-          }
-        }
-
-        const normalMatch =
-          disposition.match(
-            /filename="?([^";]+)"?/i
-          );
-
-        if (normalMatch) {
-          return normalMatch[1];
-        }
-
-        return "주소분석결과.xlsx";
-      }
-
-      function validateExcelFile(
-        file
-      ) {
-        const allowedExtensions = [
-          ".xlsx",
-          ".xls"
-        ];
-
-        const lowerFileName =
-          file.name.toLowerCase();
-
-        return allowedExtensions.some(
-          function (extension) {
-            return lowerFileName.endsWith(
-              extension
-            );
-          }
-        );
-      }
-
-      form.addEventListener(
-        "submit",
-        async function (event) {
-          event.preventDefault();
-
-          const file =
-            fileInput.files[0];
-
-          if (!file) {
-            statusBox.className =
-              "status error";
-
-            statusBox.textContent =
-              "엑셀 파일을 선택해 주세요.";
-
-            return;
-          }
-
-          if (!validateExcelFile(file)) {
-            statusBox.className =
-              "status error";
-
-            statusBox.textContent =
-              "엑셀 파일(.xlsx, .xls)만 선택할 수 있습니다.";
-
-            return;
-          }
-
-          const formData =
-            new FormData();
-
-          formData.append(
-            "file",
-            file
-          );
-
-          button.disabled = true;
-          fileInput.disabled = true;
-
-          statusBox.className =
-            "status";
-
-          statusBox.textContent =
-            "";
-
-          resetProgress();
-
-          setProgress(
-            5,
-            "엑셀 파일을 업로드하고 있습니다..."
-          );
-
-          startAnalysisProgress();
-
-          try {
-            const response =
-              await fetch(
-                "/api/excel/analyze",
-                {
-                  method: "POST",
-                  body: formData
-                }
-              );
-
-            clearProgressTimer();
-
-            if (!response.ok) {
-              const contentType =
-                response.headers.get(
-                  "content-type"
-                ) || "";
-
-              let message =
-                "처리에 실패했습니다.";
-
-              if (
-                contentType.includes(
-                  "application/json"
-                )
-              ) {
-                const errorData =
-                  await response.json();
-
-                message =
-                  errorData.reason ||
-                  errorData.message ||
-                  message;
-              } else {
-                const responseText =
-                  await response.text();
-
-                if (responseText) {
-                  message =
-                    responseText;
-                }
-              }
-
-              throw new Error(
-                message
-              );
-            }
-
-            setProgress(
-              96,
-              "결과 엑셀을 내려받고 있습니다..."
-            );
-
-            const blob =
-              await response.blob();
-
-            const downloadName =
-              getDownloadFileName(
-                response
-              );
-
-            const url =
-              URL.createObjectURL(
-                blob
-              );
-
-            const link =
-              document.createElement(
-                "a"
-              );
-
-            link.href =
-              url;
-
-            link.download =
-              downloadName;
-
-            document.body.appendChild(
-              link
-            );
-
-            link.click();
-            link.remove();
-
-            setTimeout(
-              function () {
-                URL.revokeObjectURL(
-                  url
-                );
-              },
-              1000
-            );
-
-            progressArea.classList.add(
-              "is-success"
-            );
-
-            setProgress(
-              100,
-              "주소 분석이 완료되었습니다."
-            );
-
-            statusBox.className =
-              "status success";
-
-            statusBox.textContent =
-              "분석이 완료되어 결과 엑셀을 내려받았습니다.";
-          } catch (error) {
-            clearProgressTimer();
-
-            progressArea.classList.add(
-              "is-error"
-            );
-
-            setProgress(
-              100,
-              "주소 분석에 실패했습니다."
-            );
-
-            statusBox.className =
-              "status error";
-
-            statusBox.textContent =
-              error instanceof Error
-                ? error.message
-                : "주소 분석에 실패했습니다.";
-          } finally {
-            button.disabled = false;
-            fileInput.disabled = false;
-          }
         }
       );
-    })();
-  </script>
+    }
+
+    function validateExcelFile(
+      file
+    ) {
+      const allowedExtensions = [
+        ".xlsx",
+        ".xls"
+      ];
+
+      const lowerFileName =
+        file.name.toLowerCase();
+
+      return allowedExtensions.some(
+        function (extension) {
+          return lowerFileName.endsWith(
+            extension
+          );
+        }
+      );
+    }
+
+    /* =====================================================
+     * 오류 응답 읽기
+     * =================================================== */
+
+    async function readResponseData(
+      response
+    ) {
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) || "";
+
+      if (
+        contentType.includes(
+          "application/json"
+        )
+      ) {
+        return response.json();
+      }
+
+      const text =
+        await response.text();
+
+      return {
+        ok:
+          response.ok,
+
+        reason:
+          text
+      };
+    }
+
+    /* =====================================================
+     * 결과 파일 다운로드
+     * =================================================== */
+
+    function downloadResult(
+      downloadUrl
+    ) {
+      /*
+       * window.location 방식은 서버의
+       * Content-Disposition 파일명을 그대로 사용합니다.
+       */
+      window.location.href =
+        downloadUrl;
+    }
+
+    /* =====================================================
+     * 진행률 반복 조회
+     * =================================================== */
+
+    async function pollProgress(
+      progressUrl,
+      downloadUrl
+    ) {
+      while (
+        !pollingStopped
+      ) {
+        const response =
+          await fetch(
+            progressUrl,
+            {
+              method:
+                "GET",
+
+              cache:
+                "no-store",
+
+              headers: {
+                "Accept":
+                  "application/json"
+              }
+            }
+          );
+
+        const data =
+          await readResponseData(
+            response
+          );
+
+        if (
+          !response.ok ||
+          !data.ok
+        ) {
+          throw new Error(
+            data.reason ||
+            data.message ||
+            "진행률 조회에 실패했습니다."
+          );
+        }
+
+        const current =
+          Number(
+            data.current ||
+            0
+          );
+
+        const total =
+          Number(
+            data.total ||
+            0
+          );
+
+        const percent =
+          Number(
+            data.percent ||
+            0
+          );
+
+        let message =
+          data.message ||
+          "주소를 분석하고 있습니다.";
+
+        if (
+          data.status ===
+          "WAITING"
+        ) {
+          message =
+            "작업을 준비하고 있습니다.";
+        } else if (
+          data.status ===
+          "READING"
+        ) {
+          message =
+            "엑셀 파일을 읽고 있습니다.";
+        } else if (
+          data.status ===
+          "PROCESSING"
+        ) {
+          if (
+            data.currentAddress
+          ) {
+            message =
+              `${current}/${total}개 처리 중 · ${data.currentAddress}`;
+          } else {
+            message =
+              `${current}/${total}개 처리 중`;
+          }
+        } else if (
+          data.status ===
+          "CREATING_FILE"
+        ) {
+          message =
+            "주소 분석이 끝났습니다. 결과 엑셀을 생성하고 있습니다.";
+        }
+
+        setProgress(
+          current,
+          total,
+          percent,
+          message
+        );
+
+        if (
+          data.status ===
+          "ERROR"
+        ) {
+          throw new Error(
+            data.error ||
+            data.message ||
+            "주소 분석 중 오류가 발생했습니다."
+          );
+        }
+
+        if (
+          data.status ===
+          "COMPLETED"
+        ) {
+          pollingStopped =
+            true;
+
+          progressArea.classList.add(
+            "is-success"
+          );
+
+          setProgress(
+            total,
+            total,
+            100,
+            "주소 분석이 완료되었습니다."
+          );
+
+          statusBox.className =
+            "status success";
+
+          statusBox.textContent =
+            "분석이 완료되어 결과 엑셀을 내려받습니다.";
+
+          const finalDownloadUrl =
+            data.downloadUrl ||
+            downloadUrl;
+
+          downloadResult(
+            finalDownloadUrl
+          );
+
+          return;
+        }
+
+        await wait(
+          700
+        );
+      }
+    }
+
+    /* =====================================================
+     * 업로드 실행
+     * =================================================== */
+
+    form.addEventListener(
+      "submit",
+
+      async function (
+        event
+      ) {
+        event.preventDefault();
+
+        const file =
+          fileInput.files[0];
+
+        if (!file) {
+          statusBox.className =
+            "status error";
+
+          statusBox.textContent =
+            "엑셀 파일을 선택해 주세요.";
+
+          return;
+        }
+
+        if (
+          !validateExcelFile(
+            file
+          )
+        ) {
+          statusBox.className =
+            "status error";
+
+          statusBox.textContent =
+            "엑셀 파일(.xlsx, .xls)만 선택할 수 있습니다.";
+
+          return;
+        }
+
+        const formData =
+          new FormData();
+
+        formData.append(
+          "file",
+          file
+        );
+
+        button.disabled =
+          true;
+
+        fileInput.disabled =
+          true;
+
+        resetProgress();
+
+        setProgress(
+          0,
+          0,
+          0,
+          "엑셀 파일을 업로드하고 있습니다."
+        );
+
+        try {
+          const response =
+            await fetch(
+              "/api/excel/start",
+              {
+                method:
+                  "POST",
+
+                body:
+                  formData,
+
+                headers: {
+                  "Accept":
+                    "application/json"
+                }
+              }
+            );
+
+          const data =
+            await readResponseData(
+              response
+            );
+
+          if (
+            !response.ok ||
+            !data.ok
+          ) {
+            throw new Error(
+              data.reason ||
+              data.message ||
+              "엑셀 작업 시작에 실패했습니다."
+            );
+          }
+
+          if (!data.jobId) {
+            throw new Error(
+              "서버에서 작업 ID를 받지 못했습니다."
+            );
+          }
+
+          const progressUrl =
+            data.progressUrl ||
+            `/api/excel/progress/${data.jobId}`;
+
+          const downloadUrl =
+            data.downloadUrl ||
+            `/api/excel/download/${data.jobId}`;
+
+          setProgress(
+            data.current || 0,
+            data.total || 0,
+            data.percent || 0,
+            "주소 분석 작업을 준비하고 있습니다."
+          );
+
+          await pollProgress(
+            progressUrl,
+            downloadUrl
+          );
+        } catch (error) {
+          pollingStopped =
+            true;
+
+          progressArea.classList.add(
+            "is-error"
+          );
+
+          progressText.textContent =
+            "주소 분석에 실패했습니다.";
+
+          statusBox.className =
+            "status error";
+
+          statusBox.textContent =
+            error instanceof Error
+              ? error.message
+              : "주소 분석에 실패했습니다.";
+        } finally {
+          button.disabled =
+            false;
+
+          fileInput.disabled =
+            false;
+        }
+      }
+    );
+  })();
+</script>
+ 
 </body>
 </html>
