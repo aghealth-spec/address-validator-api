@@ -5,8 +5,9 @@ import axios from "axios";
 const JUSO_API_URL =
   "https://business.juso.go.kr/addrlink/addrLinkApi.do";
 
-const JUSO_CONFIRM_KEY =
-  process.env.JUSO_CONFIRM_KEY;
+const JUSO_CONFIRM_KEY = String(
+  process.env.JUSO_CONFIRM_KEY || ""
+).trim();
 
 function cleanAddress(value) {
   return String(value ?? "")
@@ -71,68 +72,125 @@ function makeSearchCandidates(
   originalAddress
 ) {
   const candidates = new Set();
+  const text = cleanAddress(originalAddress);
 
-  const text =
-    cleanAddress(
-      originalAddress
-    );
+  if (!text) {
+    return [];
+  }
 
   candidates.add(text);
 
-  candidates.add(
+  const expandedText = cleanAddress(
+    text
+      .replace(/^서울\s/u, "서울특별시 ")
+      .replace(/^부산\s/u, "부산광역시 ")
+      .replace(/^대구\s/u, "대구광역시 ")
+      .replace(/^인천\s/u, "인천광역시 ")
+      .replace(/^광주\s/u, "광주광역시 ")
+      .replace(/^대전\s/u, "대전광역시 ")
+      .replace(/^울산\s/u, "울산광역시 ")
+      .replace(/^세종\s/u, "세종특별자치시 ")
+      .replace(/^경기\s/u, "경기도 ")
+      .replace(/^강원\s/u, "강원특별자치도 ")
+      .replace(/^충북\s/u, "충청북도 ")
+      .replace(/^충남\s/u, "충청남도 ")
+      .replace(/^전북\s/u, "전북특별자치도 ")
+      .replace(/^전남\s/u, "전라남도 ")
+      .replace(/^경북\s/u, "경상북도 ")
+      .replace(/^경남\s/u, "경상남도 ")
+      .replace(/^제주\s/u, "제주특별자치도 ")
+  );
+
+  candidates.add(expandedText);
+
+  const removeDetailSuffix = (value) =>
     cleanAddress(
+      value
+        .replace(
+          /(?:\s|,)+(?:제\s*)?[0-9A-Za-z가-힣]+\s*동\s*[0-9A-Za-z가-힣]+\s*호.*$/u,
+          ""
+        )
+        .replace(
+          /(?:\s|,)+(?:제\s*)?[0-9A-Za-z가-힣]+\s*동\s*\d{1,5}.*$/u,
+          ""
+        )
+        .replace(
+          /(?:\s|,)+\d{1,5}\s*호.*$/u,
+          ""
+        )
+        .replace(
+          /(?:\s|,)+(?:지하|지상)?\s*\d+\s*층.*$/u,
+          ""
+        )
+        .replace(
+          /(?:\s|,)+\d{1,4}\s*[-/]\s*\d{1,5}(?:\s*호)?.*$/u,
+          ""
+        )
+    );
+
+  const withoutDetail =
+    removeDetailSuffix(
+      expandedText
+    );
+
+  candidates.add(
+    withoutDetail
+  );
+
+  const withoutApartmentWord =
+    cleanAddress(
+      withoutDetail.replace(
+        /아파트/gu,
+        ""
+      )
+    );
+
+  candidates.add(
+    withoutApartmentWord
+  );
+
+  const buildingMatch =
+    withoutDetail.match(
+      /(?:읍|면|동|가)\s+(.+)$/u
+    );
+
+  if (buildingMatch) {
+    const buildingName =
+      cleanAddress(
+        buildingMatch[1]
+      );
+
+    candidates.add(
+      buildingName
+    );
+
+    candidates.add(
+      cleanAddress(
+        buildingName.replace(
+          /아파트/gu,
+          ""
+        )
+      )
+    );
+  }
+
+  candidates.add(
+    removeDetailSuffix(
       text
-        .replace(
-          /\s+(?:[가-힣A-Za-z]+\s*)?\d{1,4}\s*동\s*\d{1,5}\s*호.*$/u,
-          ""
-        )
-        .replace(
-          /\s+\d{1,5}\s*호.*$/u,
-          ""
-        )
-        .replace(
-          /\s+(?:지하|지상)?\s*\d+\s*층.*$/u,
-          ""
-        )
     )
   );
 
   candidates.add(
     cleanAddress(
-      text.replace(
-        /[, ]+\d{1,4}\s*[-/]\s*\d{1,5}(?:\s*호)?(?:\s|,|$).*$/u,
-        ""
+      removeParentheses(
+        text
       )
-    )
-  );
-
-  candidates.add(
-    cleanAddress(
-      text.replace(
-        /[, ]+(?:[가-힣A-Za-z0-9]+\s*)?동\s*\d{1,5}\s*호.*$/u,
-        ""
-      )
-    )
-  );
-
-  candidates.add(
-    cleanAddress(
-      text.replace(
-        /\)\s+\d{2,5}(?:\s*호)?\s*$/u,
-        ")"
-      )
-    )
-  );
-
-  candidates.add(
-    cleanAddress(
-      removeParentheses(text)
     )
   );
 
   const jibunMatch =
-    text.match(
-      /^(.+?[가-힣]+동\s+(?:산\s*)?\d+(?:-\d+)?)(?:번지)?(?:\s|,|$)/u
+    expandedText.match(
+      /^(.+?[가-힣]+(?:읍|면|동|리)\s+(?:산\s*)?\d+(?:-\d+)?)(?:번지)?(?:\s|,|$)/u
     );
 
   if (jibunMatch) {
@@ -144,7 +202,7 @@ function makeSearchCandidates(
   }
 
   const roadMatch =
-    text.match(
+    expandedText.match(
       /^(.+?(?:대로|로|길)\s*\d+(?:-\d+)?)(?:\s|,|\(|$)/u
     );
 
@@ -161,7 +219,7 @@ function makeSearchCandidates(
   ].filter(
     (value) =>
       value &&
-      value.length >= 5
+      value.length >= 2
   );
 }
 
@@ -182,20 +240,26 @@ async function searchJuso(
           confmKey:
             JUSO_CONFIRM_KEY,
 
-          currentPage: 1,
+          currentPage:
+            1,
 
-          countPerPage: 20,
+          countPerPage:
+            20,
 
           keyword,
 
-          resultType: "json",
+          resultType:
+            "json",
 
-          hstryYn: "Y",
+          hstryYn:
+            "Y",
 
-          firstSort: "none"
+          firstSort:
+            "none"
         },
 
-        timeout: 15000
+        timeout:
+          15000
       }
     );
 
@@ -216,7 +280,8 @@ async function searchJuso(
     common?.errorCode !== "0"
   ) {
     return {
-      ok: false,
+      ok:
+        false,
 
       keyword,
 
@@ -228,13 +293,17 @@ async function searchJuso(
         common?.errorMessage ||
         "",
 
-      items: []
+      items:
+        []
     };
   }
 
   return {
-    ok: true,
+    ok:
+      true,
+
     keyword,
+
     items
   };
 }
@@ -306,10 +375,14 @@ function fuzzyContains(
   target
 ) {
   const sourceText =
-    compact(source);
+    compact(
+      source
+    );
 
   const targetText =
-    compact(target);
+    compact(
+      target
+    );
 
   return (
     targetText.length >= 2 &&
@@ -393,7 +466,9 @@ function selectBestAddress(
         }
 
         const roadKey =
-          makeRoadKey(item);
+          makeRoadKey(
+            item
+          );
 
         if (
           roadKey &&
@@ -435,7 +510,9 @@ function selectBestAddress(
             if (
               value &&
               originalCompact.includes(
-                compact(value)
+                compact(
+                  value
+                )
               )
             ) {
               score += 5;
@@ -452,7 +529,8 @@ function selectBestAddress(
 
   scored.sort(
     (a, b) =>
-      b.score - a.score
+      b.score -
+      a.score
   );
 
   if (
@@ -472,23 +550,59 @@ function shortProvinceName(
   value
 ) {
   const map = {
-    서울특별시: "서울",
-    부산광역시: "부산",
-    대구광역시: "대구",
-    인천광역시: "인천",
-    광주광역시: "광주",
-    대전광역시: "대전",
-    울산광역시: "울산",
-    세종특별자치시: "세종",
-    경기도: "경기",
-    강원특별자치도: "강원",
-    충청북도: "충북",
-    충청남도: "충남",
-    전북특별자치도: "전북",
-    전라남도: "전남",
-    경상북도: "경북",
-    경상남도: "경남",
-    제주특별자치도: "제주"
+    서울특별시:
+      "서울",
+
+    부산광역시:
+      "부산",
+
+    대구광역시:
+      "대구",
+
+    인천광역시:
+      "인천",
+
+    광주광역시:
+      "광주",
+
+    전남광주통합특별시:
+      "광주",
+
+    대전광역시:
+      "대전",
+
+    울산광역시:
+      "울산",
+
+    세종특별자치시:
+      "세종",
+
+    경기도:
+      "경기",
+
+    강원특별자치도:
+      "강원",
+
+    충청북도:
+      "충북",
+
+    충청남도:
+      "충남",
+
+    전북특별자치도:
+      "전북",
+
+    전라남도:
+      "전남",
+
+    경상북도:
+      "경북",
+
+    경상남도:
+      "경남",
+
+    제주특별자치도:
+      "제주"
   };
 
   return map[value] || "";
@@ -505,11 +619,47 @@ function removeToken(
     return source;
   }
 
+  const sourceText =
+    String(
+      source
+    );
+
+  const tokenText =
+    String(
+      token
+    ).trim();
+
+  if (!tokenText) {
+    return sourceText;
+  }
+
+  const isNumberToken =
+    /^\d+(?:-\d+)?$/u.test(
+      tokenText
+    );
+
+  if (isNumberToken) {
+    const pattern =
+      new RegExp(
+        `(^|[\\s,(])${escapeRegExp(
+          tokenText
+        )}(?=번지|[\\s,)]|$)`,
+        "giu"
+      );
+
+    return cleanAddress(
+      sourceText.replace(
+        pattern,
+        "$1"
+      )
+    );
+  }
+
   return cleanAddress(
-    source.replace(
+    sourceText.replace(
       new RegExp(
         buildFlexiblePattern(
-          token
+          tokenText
         ),
         "giu"
       ),
@@ -567,8 +717,13 @@ function normalizeFloor(
   value
 ) {
   const floor =
-    String(value)
-      .replace(/\s+/g, "")
+    String(
+      value
+    )
+      .replace(
+        /\s+/g,
+        ""
+      )
       .toUpperCase();
 
   return `${floor}층`;
@@ -634,10 +789,17 @@ function parseDetailText(
   let text =
     original;
 
-  let dong = "";
-  let floor = "";
-  let ho = "";
-  let extra = "";
+  let dong =
+    "";
+
+  let floor =
+    "";
+
+  let ho =
+    "";
+
+  let extra =
+    "";
 
   let type =
     "unknown";
@@ -650,9 +812,11 @@ function parseDetailText(
 
   if (!text) {
     return {
-      original: "",
+      original:
+        "",
 
-      normalized: "",
+      normalized:
+        "",
 
       dong,
 
@@ -662,7 +826,8 @@ function parseDetailText(
 
       extra,
 
-      type: "none",
+      type:
+        "none",
 
       status:
         "상세주소 없음",
@@ -670,7 +835,8 @@ function parseDetailText(
       confidence:
         "낮음",
 
-      remainingText: ""
+      remainingText:
+        ""
     };
   }
 
@@ -682,7 +848,10 @@ function parseDetailText(
   if (dongMatch) {
     dong =
       `${dongMatch[1]
-        .replace(/\s+/g, "")}동`;
+        .replace(
+          /\s+/g,
+          ""
+        )}동`;
 
     text =
       text.replace(
@@ -711,7 +880,7 @@ function parseDetailText(
 
   const hoMatch =
     text.match(
-      /(?:^|[\s,])([A-Za-z가-힣]?\d+[A-Za-z가-힣]?)\s*호/u
+      /(?:^|[\s,])([A-Za-z가-힣]{0,4}\d+[A-Za-z가-힣]{0,2})\s*호/u
     );
 
   if (hoMatch) {
@@ -770,13 +939,41 @@ function parseDetailText(
     ho =
       `${number}호`;
 
-    text = "";
+    text =
+      "";
 
     type =
       "숫자 단독";
 
     status =
       "호 표기 누락 의심";
+
+    confidence =
+      "중간";
+  }
+
+  if (
+    !ho &&
+    /^\s*[A-Za-z]{1,4}\d{1,5}\s*$/u.test(
+      text
+    )
+  ) {
+    const unitName =
+      text
+        .trim()
+        .toUpperCase();
+
+    ho =
+      `${unitName}호`;
+
+    text =
+      "";
+
+    type =
+      "영문 상가호";
+
+    status =
+      "호 표기 보정";
 
     confidence =
       "중간";
@@ -789,23 +986,37 @@ function parseDetailText(
       );
 
     if (attachedMatch) {
-      ho =
-        `${attachedMatch[1]}호`;
+      const number =
+        attachedMatch[1];
 
-      extra =
+      const attachedText =
         attachedMatch[2]
           .trim();
 
-      text = "";
+      const isOrdinalExpression =
+        /^(?:번째|번(?:째|출구|게이트|창구)?)/u.test(
+          attachedText
+        );
 
-      type =
-        "호수·상호명 결합";
+      if (!isOrdinalExpression) {
+        ho =
+          `${number}호`;
 
-      status =
-        "보정 필요";
+        extra =
+          attachedText;
 
-      confidence =
-        "낮음";
+        text =
+          "";
+
+        type =
+          "호수·상호명 결합";
+
+        status =
+          "보정 필요";
+
+        confidence =
+          "중간";
+      }
     }
   }
 
@@ -815,8 +1026,12 @@ function parseDetailText(
         extra,
         text
       ]
-        .filter(Boolean)
-        .join(" ")
+        .filter(
+          Boolean
+        )
+        .join(
+          " "
+        )
     );
 
   if (
@@ -826,33 +1041,42 @@ function parseDetailText(
     if (
       type === "unknown"
     ) {
-      type = "동·호";
+      type =
+        "동·호";
     }
 
     if (
       status ===
       "자동판정 불가"
     ) {
-      status = "정상";
+      status =
+        "정상";
     }
 
     if (
       status === "정상"
     ) {
-      confidence = "높음";
+      confidence =
+        "높음";
     }
   } else if (
     floor &&
     ho
   ) {
-    type = "층·호";
-    status = "정상";
-    confidence = "높음";
+    type =
+      "층·호";
+
+    status =
+      "정상";
+
+    confidence =
+      "높음";
   } else if (ho) {
     if (
       type === "unknown"
     ) {
-      type = "호";
+      type =
+        "호";
     }
 
     if (
@@ -866,18 +1090,25 @@ function parseDetailText(
     if (
       confidence === "낮음"
     ) {
-      confidence = "중간";
+      confidence =
+        "중간";
     }
   } else if (floor) {
-    type = "층";
+    type =
+      "층";
+
     status =
       "부분 상세주소";
+
     confidence =
       "중간";
   } else if (dong) {
-    type = "동";
+    type =
+      "동";
+
     status =
       "부분 상세주소";
+
     confidence =
       "중간";
   } else if (extra) {
@@ -900,8 +1131,12 @@ function parseDetailText(
       ho,
       extra
     ]
-      .filter(Boolean)
-      .join(" ");
+      .filter(
+        Boolean
+      )
+      .join(
+        " "
+      );
 
   return {
     original,
@@ -943,13 +1178,15 @@ function extractDetailByConfirmedAddress(
     apiAddress.roadAddr,
     apiAddress.roadAddrPart1,
     apiAddress.jibunAddr,
-    apiAddress.bdNm,
-    apiAddress.detBdNmList
+    apiAddress.bdNm
   ]
-    .filter(Boolean)
+    .filter(
+      Boolean
+    )
     .sort(
       (a, b) =>
-        b.length - a.length
+        b.length -
+        a.length
     );
 
   for (
@@ -965,14 +1202,28 @@ function extractDetailByConfirmedAddress(
 
   const addressParts = [
     apiAddress.siNm,
+
     shortProvinceName(
       apiAddress.siNm
     ),
+
+    apiAddress.siNm ===
+    "전남광주통합특별시"
+      ? "광주광역시"
+      : "",
+
+    apiAddress.siNm ===
+    "전남광주통합특별시"
+      ? "광주"
+      : "",
+
     apiAddress.sggNm,
     apiAddress.emdNm,
     apiAddress.liNm,
     apiAddress.rn
-  ].filter(Boolean);
+  ].filter(
+    Boolean
+  );
 
   for (
     const part
@@ -1018,19 +1269,10 @@ function extractDetailByConfirmedAddress(
   }
 
   const buildingNames = [
-    apiAddress.bdNm,
-
-    ...(
-      apiAddress
-        .detBdNmList ||
-      ""
-    )
-      .split(",")
-      .map(
-        (value) =>
-          value.trim()
-      )
-  ].filter(Boolean);
+    apiAddress.bdNm
+  ].filter(
+    Boolean
+  );
 
   for (
     const buildingName
@@ -1078,9 +1320,11 @@ async function analyzeAddress(
 
   if (!originalAddress) {
     return {
-      ok: false,
+      ok:
+        false,
 
-      inputAddress: "",
+      inputAddress:
+        "",
 
       reason:
         "주소가 비어 있습니다."
@@ -1092,8 +1336,11 @@ async function analyzeAddress(
       originalAddress
     );
 
-  let selected = null;
-  let usedKeyword = "";
+  let selected =
+    null;
+
+  let usedKeyword =
+    "";
 
   for (
     const keyword
@@ -1124,7 +1371,8 @@ async function analyzeAddress(
       }
     } catch (error) {
       return {
-        ok: false,
+        ok:
+          false,
 
         inputAddress:
           originalAddress,
@@ -1132,20 +1380,25 @@ async function analyzeAddress(
         reason:
           error instanceof Error
             ? error.message
-            : String(error)
+            : String(
+                error
+              )
       };
     }
   }
 
   if (!selected) {
     return {
-      ok: false,
+      ok:
+        false,
 
       inputAddress:
         originalAddress,
 
       searchCandidates:
-        candidates.join(" | "),
+        candidates.join(
+          " | "
+        ),
 
       reason:
         "기본주소를 확정하지 못했습니다."
@@ -1166,7 +1419,8 @@ async function analyzeAddress(
     );
 
   return {
-    ok: true,
+    ok:
+      true,
 
     inputAddress:
       originalAddress,
