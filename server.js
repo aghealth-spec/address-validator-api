@@ -1433,41 +1433,48 @@ function selectMatchedTitle(
   exposMatch,
   detail
 ) {
-  const matchedPkSet =
-    new Set(
-      exposMatch.matchedBuildingPks ||
-      []
-    );
-
   /*
    * 1순위:
-   * 전유부 동·호가 일치한 관리건축물대장 PK
+   * 전유부에서 동·호가 직접 일치한 경우,
+   * 일치 결과의 동명으로 표제부 선택
    */
-  const exactPkTitles =
+  const matchedDongNames =
+    new Set(
+      exposMatch.exactMatches
+        .map((candidate) =>
+          normalizeDongName(
+            candidate.dongName
+          )
+        )
+        .filter(Boolean)
+    );
+
+  const exposDongTitles =
     titleCandidates.filter(
       (candidate) =>
-        candidate.buildingPk &&
-        matchedPkSet.has(
-          candidate.buildingPk
+        matchedDongNames.has(
+          normalizeDongName(
+            candidate.dongName
+          )
         )
     );
 
-  if (exactPkTitles.length > 0) {
+  if (exposDongTitles.length > 0) {
     return {
       source:
-        "EXPOS_EXACT_MATCH",
+        "EXPOS_DONG_UNIT_MATCH",
 
       selected:
-        exactPkTitles[0],
+        exposDongTitles[0],
 
       candidates:
-        exactPkTitles
+        exposDongTitles
     };
   }
 
   /*
    * 2순위:
-   * 입력 동과 표제부 동명칭 직접 비교
+   * 입력 동과 표제부 동명 직접 비교
    */
   if (detail.targetDong) {
     const dongTitles =
@@ -1475,8 +1482,7 @@ function selectMatchedTitle(
         (candidate) =>
           normalizeDongName(
             candidate.dongName
-          ) ===
-          detail.targetDong
+          ) === detail.targetDong
       );
 
     if (dongTitles.length > 0) {
@@ -1493,10 +1499,6 @@ function selectMatchedTitle(
     }
   }
 
-  /*
-   * 3순위:
-   * 공동주택 후보
-   */
   const residentialTitles =
     titleCandidates.filter(
       isLikelyResidentialTitle
@@ -1517,10 +1519,6 @@ function selectMatchedTitle(
     };
   }
 
-  /*
-   * 특정 동을 확정하지 못한 상태에서
-   * 임의로 최고층 후보를 확정하지 않습니다.
-   */
   return {
     source:
       "TITLE_NOT_DETERMINED",
