@@ -4,27 +4,43 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>엑셀 주소 분석</title>
+
   <style>
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       font-family: Arial, "Noto Sans KR", sans-serif;
       background: #f4f6f8;
       color: #222;
     }
+
     .wrap {
       width: min(760px, calc(100% - 32px));
       margin: 64px auto;
     }
+
     .card {
       background: #fff;
       border: 1px solid #e5e7eb;
       border-radius: 16px;
       padding: 32px;
-      box-shadow: 0 12px 30px rgba(0,0,0,.06);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .06);
     }
-    h1 { margin: 0 0 12px; font-size: 28px; }
-    .desc { color: #5f6875; line-height: 1.65; margin-bottom: 28px; }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+    }
+
+    .desc {
+      color: #5f6875;
+      line-height: 1.65;
+      margin-bottom: 28px;
+    }
+
     .notice {
       background: #f8fafc;
       border: 1px solid #e5e7eb;
@@ -34,6 +50,7 @@
       line-height: 1.6;
       font-size: 14px;
     }
+
     .upload-box {
       border: 2px dashed #cbd5e1;
       border-radius: 12px;
@@ -41,11 +58,14 @@
       text-align: center;
       background: #fafafa;
     }
-    input[type=file] {
+
+    input[type="file"] {
       width: 100%;
       margin-bottom: 18px;
     }
+
     button {
+      width: 100%;
       border: 0;
       border-radius: 10px;
       padding: 14px 24px;
@@ -53,12 +73,79 @@
       cursor: pointer;
       background: #111827;
       color: #fff;
-      width: 100%;
     }
+
     button:disabled {
       opacity: .5;
       cursor: not-allowed;
     }
+
+    .progress-area {
+      margin-top: 20px;
+      text-align: left;
+    }
+
+    .progress-area[hidden] {
+      display: none;
+    }
+
+    .progress-info {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 9px;
+      font-size: 14px;
+      color: #4b5563;
+    }
+
+    .progress-text {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .progress-percent {
+      flex: 0 0 auto;
+      color: #111827;
+    }
+
+    .progress-track {
+      position: relative;
+      width: 100%;
+      height: 14px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e5e7eb;
+    }
+
+    .progress-bar {
+      width: 0;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        #111827,
+        #4b5563
+      );
+      transition: width .35s ease;
+    }
+
+    .progress-area.is-success .progress-bar {
+      background: linear-gradient(
+        90deg,
+        #047857,
+        #34d399
+      );
+    }
+
+    .progress-area.is-error .progress-bar {
+      background: linear-gradient(
+        90deg,
+        #b91c1c,
+        #ef4444
+      );
+    }
+
     .status {
       margin-top: 18px;
       min-height: 24px;
@@ -66,14 +153,40 @@
       font-size: 14px;
       white-space: pre-wrap;
     }
-    .success { color: #047857; }
-    .error { color: #b91c1c; }
+
+    .success {
+      color: #047857;
+    }
+
+    .error {
+      color: #b91c1c;
+    }
+
+    @media (max-width: 600px) {
+      .wrap {
+        margin: 28px auto;
+      }
+
+      .card {
+        padding: 22px;
+      }
+
+      .upload-box {
+        padding: 22px 18px;
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+    }
   </style>
 </head>
+
 <body>
   <main class="wrap">
     <section class="card">
       <h1>엑셀 주소 분석</h1>
+
       <p class="desc">
         엑셀의 주소를 기준으로 기본주소를 먼저 확정한 뒤,
         남은 문자열에서 동·층·호 등 상세주소를 분리합니다.
@@ -94,79 +207,422 @@
             accept=".xlsx,.xls"
             required
           >
-          <button id="submitButton" type="submit">
+
+          <button
+            id="submitButton"
+            type="submit"
+          >
             주소 분석 후 결과 엑셀 받기
           </button>
-          <div id="status" class="status"></div>
+
+          <div
+            id="progressArea"
+            class="progress-area"
+            hidden
+          >
+            <div class="progress-info">
+              <span
+                id="progressText"
+                class="progress-text"
+              >
+                파일 업로드 준비 중...
+              </span>
+
+              <strong
+                id="progressPercent"
+                class="progress-percent"
+              >
+                0%
+              </strong>
+            </div>
+
+            <div class="progress-track">
+              <div
+                id="progressBar"
+                class="progress-bar"
+              ></div>
+            </div>
+          </div>
+
+          <div
+            id="status"
+            class="status"
+          ></div>
         </div>
       </form>
     </section>
   </main>
 
   <script>
-    const form = document.getElementById("uploadForm");
-    const fileInput = document.getElementById("excelFile");
-    const button = document.getElementById("submitButton");
-    const statusBox = document.getElementById("status");
+    (function () {
+      "use strict";
 
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
+      const form =
+        document.getElementById("uploadForm");
 
-      const file = fileInput.files[0];
-      if (!file) {
-        statusBox.className = "status error";
-        statusBox.textContent = "엑셀 파일을 선택해 주세요.";
-        return;
+      const fileInput =
+        document.getElementById("excelFile");
+
+      const button =
+        document.getElementById("submitButton");
+
+      const statusBox =
+        document.getElementById("status");
+
+      const progressArea =
+        document.getElementById("progressArea");
+
+      const progressText =
+        document.getElementById("progressText");
+
+      const progressPercent =
+        document.getElementById("progressPercent");
+
+      const progressBar =
+        document.getElementById("progressBar");
+
+      let progressTimer = null;
+      let currentProgress = 0;
+
+      function setProgress(
+        percent,
+        message
+      ) {
+        currentProgress = Math.max(
+          0,
+          Math.min(
+            100,
+            Number(percent) || 0
+          )
+        );
+
+        progressArea.hidden = false;
+
+        progressBar.style.width =
+          `${currentProgress}%`;
+
+        progressPercent.textContent =
+          `${Math.round(currentProgress)}%`;
+
+        if (message) {
+          progressText.textContent =
+            message;
+        }
       }
 
-      const formData = new FormData();
-      formData.append("file", file);
+      function resetProgress() {
+        clearProgressTimer();
 
-      button.disabled = true;
-      statusBox.className = "status";
-      statusBox.textContent =
-        "주소를 분석하고 있습니다.\n행 수에 따라 처리 시간이 달라질 수 있습니다.";
+        currentProgress = 0;
 
-      try {
-        const response = await fetch("/api/excel/analyze", {
-          method: "POST",
-          body: formData
-        });
+        progressArea.hidden = false;
 
-        if (!response.ok) {
-          const contentType = response.headers.get("content-type") || "";
-          let message = "처리에 실패했습니다.";
+        progressArea.classList.remove(
+          "is-success",
+          "is-error"
+        );
 
-          if (contentType.includes("application/json")) {
-            const errorData = await response.json();
-            message = errorData.reason || message;
-          } else {
-            message = await response.text();
+        progressBar.style.width =
+          "0%";
+
+        progressPercent.textContent =
+          "0%";
+
+        progressText.textContent =
+          "파일 업로드 준비 중...";
+      }
+
+      function clearProgressTimer() {
+        if (progressTimer) {
+          clearInterval(
+            progressTimer
+          );
+
+          progressTimer = null;
+        }
+      }
+
+      function startAnalysisProgress() {
+        clearProgressTimer();
+
+        progressTimer = setInterval(
+          function () {
+            if (
+              currentProgress < 35
+            ) {
+              currentProgress += 3;
+            } else if (
+              currentProgress < 65
+            ) {
+              currentProgress += 1.7;
+            } else if (
+              currentProgress < 82
+            ) {
+              currentProgress += 0.8;
+            } else if (
+              currentProgress < 92
+            ) {
+              currentProgress += 0.25;
+            }
+
+            setProgress(
+              currentProgress,
+              currentProgress < 35
+                ? "엑셀 파일을 읽고 있습니다..."
+                : currentProgress < 82
+                  ? "주소를 분석하고 있습니다..."
+                  : "결과 엑셀을 생성하고 있습니다..."
+            );
+          },
+          500
+        );
+      }
+
+      function getDownloadFileName(
+        response
+      ) {
+        const disposition =
+          response.headers.get(
+            "content-disposition"
+          ) || "";
+
+        const utf8Match =
+          disposition.match(
+            /filename\*=UTF-8''([^;]+)/i
+          );
+
+        if (utf8Match) {
+          try {
+            return decodeURIComponent(
+              utf8Match[1]
+            );
+          } catch (error) {
+            console.warn(
+              "파일명 디코딩 실패:",
+              error
+            );
           }
-
-          throw new Error(message);
         }
 
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
+        const normalMatch =
+          disposition.match(
+            /filename="?([^";]+)"?/i
+          );
 
-        link.href = url;
-        link.download = "주소분석결과.xlsx";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
+        if (normalMatch) {
+          return normalMatch[1];
+        }
 
-        statusBox.className = "status success";
-        statusBox.textContent = "분석이 완료되어 결과 엑셀을 내려받았습니다.";
-      } catch (error) {
-        statusBox.className = "status error";
-        statusBox.textContent = error.message;
-      } finally {
-        button.disabled = false;
+        return "주소분석결과.xlsx";
       }
-    });
+
+      function validateExcelFile(
+        file
+      ) {
+        const allowedExtensions = [
+          ".xlsx",
+          ".xls"
+        ];
+
+        const lowerFileName =
+          file.name.toLowerCase();
+
+        return allowedExtensions.some(
+          function (extension) {
+            return lowerFileName.endsWith(
+              extension
+            );
+          }
+        );
+      }
+
+      form.addEventListener(
+        "submit",
+        async function (event) {
+          event.preventDefault();
+
+          const file =
+            fileInput.files[0];
+
+          if (!file) {
+            statusBox.className =
+              "status error";
+
+            statusBox.textContent =
+              "엑셀 파일을 선택해 주세요.";
+
+            return;
+          }
+
+          if (!validateExcelFile(file)) {
+            statusBox.className =
+              "status error";
+
+            statusBox.textContent =
+              "엑셀 파일(.xlsx, .xls)만 선택할 수 있습니다.";
+
+            return;
+          }
+
+          const formData =
+            new FormData();
+
+          formData.append(
+            "file",
+            file
+          );
+
+          button.disabled = true;
+          fileInput.disabled = true;
+
+          statusBox.className =
+            "status";
+
+          statusBox.textContent =
+            "";
+
+          resetProgress();
+
+          setProgress(
+            5,
+            "엑셀 파일을 업로드하고 있습니다..."
+          );
+
+          startAnalysisProgress();
+
+          try {
+            const response =
+              await fetch(
+                "/api/excel/analyze",
+                {
+                  method: "POST",
+                  body: formData
+                }
+              );
+
+            clearProgressTimer();
+
+            if (!response.ok) {
+              const contentType =
+                response.headers.get(
+                  "content-type"
+                ) || "";
+
+              let message =
+                "처리에 실패했습니다.";
+
+              if (
+                contentType.includes(
+                  "application/json"
+                )
+              ) {
+                const errorData =
+                  await response.json();
+
+                message =
+                  errorData.reason ||
+                  errorData.message ||
+                  message;
+              } else {
+                const responseText =
+                  await response.text();
+
+                if (responseText) {
+                  message =
+                    responseText;
+                }
+              }
+
+              throw new Error(
+                message
+              );
+            }
+
+            setProgress(
+              96,
+              "결과 엑셀을 내려받고 있습니다..."
+            );
+
+            const blob =
+              await response.blob();
+
+            const downloadName =
+              getDownloadFileName(
+                response
+              );
+
+            const url =
+              URL.createObjectURL(
+                blob
+              );
+
+            const link =
+              document.createElement(
+                "a"
+              );
+
+            link.href =
+              url;
+
+            link.download =
+              downloadName;
+
+            document.body.appendChild(
+              link
+            );
+
+            link.click();
+            link.remove();
+
+            setTimeout(
+              function () {
+                URL.revokeObjectURL(
+                  url
+                );
+              },
+              1000
+            );
+
+            progressArea.classList.add(
+              "is-success"
+            );
+
+            setProgress(
+              100,
+              "주소 분석이 완료되었습니다."
+            );
+
+            statusBox.className =
+              "status success";
+
+            statusBox.textContent =
+              "분석이 완료되어 결과 엑셀을 내려받았습니다.";
+          } catch (error) {
+            clearProgressTimer();
+
+            progressArea.classList.add(
+              "is-error"
+            );
+
+            setProgress(
+              100,
+              "주소 분석에 실패했습니다."
+            );
+
+            statusBox.className =
+              "status error";
+
+            statusBox.textContent =
+              error instanceof Error
+                ? error.message
+                : "주소 분석에 실패했습니다.";
+          } finally {
+            button.disabled = false;
+            fileInput.disabled = false;
+          }
+        }
+      );
+    })();
   </script>
 </body>
 </html>
