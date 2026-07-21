@@ -1838,203 +1838,6 @@ function evaluateExposMatch(
  * 표제부 선택
  * ======================================================= */
 
-function selectMatchedTitle(
-  titleCandidates,
-  exposMatch,
-  detail,
-  juso
-) {
-  /*
-   * 1순위:
-   * 전유부에서 동·호가 일치한 동명으로 표제부 선택
-   */
-  const matchedDongNames =
-    new Set(
-      exposMatch.exactMatches
-        .map((candidate) =>
-          normalizeDongName(
-            candidate.dongName
-          )
-        )
-        .filter(Boolean)
-    );
-
-  if (matchedDongNames.size > 0) {
-    const exposDongTitles =
-      titleCandidates.filter(
-        (candidate) =>
-          matchedDongNames.has(
-            normalizeDongName(
-              candidate.dongName
-            )
-          )
-      );
-
-    if (exposDongTitles.length > 0) {
-      return {
-        source:
-          "EXPOS_DONG_UNIT_MATCH",
-
-        selected:
-          exposDongTitles[0],
-
-        candidates:
-          exposDongTitles
-      };
-    }
-  }
-
-  /*
-   * 2순위:
-   * 입력 동과 표제부 동명 일치
-   */
-  if (detail.targetDong) {
-    const dongTitles =
-      titleCandidates.filter(
-        (candidate) =>
-          normalizeDongName(
-            candidate.dongName
-          ) ===
-          detail.targetDong
-      );
-
-    if (dongTitles.length > 0) {
-      return {
-        source:
-          "TITLE_DONG_MATCH",
-
-        selected:
-          dongTitles[0],
-
-        candidates:
-          dongTitles
-      };
-    }
-  }
-
-  /*
-   * 3순위:
-   * Juso 도로명주소와 표제부 도로명주소 정확 비교
-   *
-   * 대형 복합대지에서는 동일 지번에 건물이 여러 개 있으므로
-   * 건물명보다 도로명주소 일치를 우선합니다.
-   */
-  const jusoRoadAddress =
-    normalizeRoadAddressForCompare(
-      juso?.roadAddrPart1 ||
-      juso?.roadAddr ||
-      ""
-    );
-
-  if (jusoRoadAddress) {
-    const roadAddressMatches =
-      titleCandidates.filter(
-        (candidate) => {
-          const candidateRoadAddress =
-            normalizeRoadAddressForCompare(
-              candidate.roadAddress
-            );
-
-          return (
-            candidateRoadAddress &&
-            candidateRoadAddress ===
-              jusoRoadAddress
-          );
-        }
-      );
-
-    /*
-     * 도로명주소가 하나만 일치하면 바로 선택
-     */
-    if (
-      roadAddressMatches.length === 1
-    ) {
-      return {
-        source:
-          "ROAD_ADDRESS_EXACT_MATCH",
-
-        selected:
-          roadAddressMatches[0],
-
-        candidates:
-          roadAddressMatches
-      };
-    }
-
-    /*
-     * 같은 도로명주소 후보가 여러 개라면
-     * 건물명·용도·층수 점수로 선택
-     */
-    if (
-      roadAddressMatches.length > 1
-    ) {
-      const scoredMatches =
-        roadAddressMatches
-          .map((candidate) => ({
-            candidate,
-
-            score:
-              calculateTitleCandidateScore(
-                candidate,
-                juso,
-                detail
-              )
-          }))
-          .sort(
-            (a, b) =>
-              b.score - a.score
-          );
-
-      if (
-        scoredMatches.length > 0 &&
-        scoredMatches[0].score >
-          scoredMatches[1]?.score
-      ) {
-        return {
-          source:
-            "ROAD_ADDRESS_SCORED_MATCH",
-
-          selected:
-            scoredMatches[0]
-              .candidate,
-
-          candidates:
-            roadAddressMatches,
-
-          scores:
-            scoredMatches.map(
-              (item) => ({
-                buildingPk:
-                  item.candidate
-                    .buildingPk,
-
-                buildingName:
-                  item.candidate
-                    .buildingName,
-
-                dongName:
-                  item.candidate
-                    .dongName,
-
-                score:
-                  item.score
-              })
-            )
-        };
-      }
-
-      return {
-        source:
-          "ROAD_ADDRESS_MULTIPLE_MATCH",
-
-        selected: null,
-
-        candidates:
-          roadAddressMatches
-      };
-    }
-  }
-
   /*
    * 4순위:
    * Juso 건물명과 표제부 건물명 비교
@@ -3363,6 +3166,158 @@ function selectMatchedTitle(
   /*
    * 6. 표제부 최종 선택
    */
+
+function normalizeRoadAddressForCompare(value) {
+  return String(value ?? "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function calculateTitleCandidateScore(
+  candidate,
+  juso,
+  detail
+) {
+  let score = 0;
+
+  const candidateRoadAddress =
+    normalizeRoadAddressForCompare(
+      candidate.roadAddress
+    );
+
+  const jusoRoadAddress =
+    normalizeRoadAddressForCompare(
+      juso?.roadAddrPart1 ||
+      juso?.roadAddr ||
+      ""
+    );
+
+  if (
+    candidateRoadAddress &&
+    jusoRoadAddress &&
+    candidateRoadAddress ===
+      jusoRoadAddress
+  ) {
+    score += 100;
+  }
+
+  const candidateName =
+    normalizeCompareText(
+      candidate.buildingName
+    );
+
+  const candidateDongName =
+    normalizeCompareText(
+      candidate.dongName
+    );
+
+  const jusoBuildingName =
+    normalizeCompareText(
+      juso?.bdNm || ""
+    );
+
+  if (
+    candidateName &&
+    jusoBuildingName &&
+    candidateName ===
+      jusoBuildingName
+  ) {
+    score += 80;
+  } else if (
+    candidateName &&
+    jusoBuildingName &&
+    (
+      candidateName.includes(
+        jusoBuildingName
+      ) ||
+      jusoBuildingName.includes(
+        candidateName
+      )
+    )
+  ) {
+    score += 50;
+  }
+
+  if (
+    detail.targetDong &&
+    normalizeDongName(
+      candidate.dongName
+    ) === detail.targetDong
+  ) {
+    score += 80;
+  }
+
+  const inputFloor =
+    Number.isFinite(
+      detail.inputFloor
+    )
+      ? detail.inputFloor
+      : detail.inferredFloor;
+
+  if (
+    Number.isFinite(inputFloor)
+  ) {
+    if (
+      detail.floorType ===
+        "UNDERGROUND"
+    ) {
+      if (
+        Number.isFinite(
+          candidate
+            .undergroundFloorCount
+        ) &&
+        inputFloor <=
+          candidate
+            .undergroundFloorCount
+      ) {
+        score += 20;
+      } else {
+        score -= 50;
+      }
+    } else {
+      if (
+        Number.isFinite(
+          candidate
+            .groundFloorCount
+        ) &&
+        inputFloor <=
+          candidate
+            .groundFloorCount
+      ) {
+        score += 20;
+      } else {
+        score -= 50;
+      }
+    }
+  }
+
+  const purposeText =
+    normalizeCompareText(
+      [
+        candidate.mainPurpose,
+        candidate.otherPurpose
+      ].join(" ")
+    );
+
+  if (
+    purposeText.includes("업무시설")
+  ) {
+    score += 10;
+  }
+
+  if (
+    !candidateName &&
+    !candidateDongName
+  ) {
+    score -= 30;
+  }
+
+  return score;
+}
+  
   const titleSelection =
     selectMatchedTitle(
       titleCandidates,
