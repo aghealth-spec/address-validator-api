@@ -1298,6 +1298,339 @@ async function searchExposWithFallback(
   };
 }
 
+
+/* =========================================================
+ * 전유부 폴백 조회
+ * ======================================================= */
+
+async function searchTargetExposWithPaging(
+  juso,
+  preferredParams,
+  detail,
+  options = {}
+) {
+  const numOfRows =
+    Math.min(
+      Math.max(
+        Number(
+          options.exposRowsPerPage || 100
+        ),
+        10
+      ),
+      100
+    );
+
+  const maxPages =
+    Math.min(
+      Math.max(
+        Number(
+          options.exposMaxPages || 20
+        ),
+        1
+      ),
+      50
+    );
+
+  const targetDong =
+    normalizeDongName(
+      detail?.dongRaw ||
+      detail?.dong ||
+      ""
+    );
+
+  const targetHo =
+    normalizeHoName(
+      detail?.hoRaw ||
+      detail?.ho ||
+      ""
+    );
+
+  const candidates = [];
+
+  if (
+    preferredParams &&
+    preferredParams.valid !== false
+  ) {
+    candidates.push({
+      ...preferredParams,
+      lookupSource:
+        preferredParams.lookupSource ||
+        "TITLE_MATCHED_PARAMS"
+    });
+  }
+
+  for (
+    const params
+    of buildBuildingParamCandidates(juso)
+  ) {
+    if (
+      params.valid === false
+    ) {
+      continue;
+    }
+
+    const duplicate =
+      candidates.some(
+        (item) =>
+          item.sigunguCd === params.sigunguCd &&
+          item.bjdongCd === params.bjdongCd &&
+          item.platGbCd === params.platGbCd &&
+          item.bun === params.bun &&
+          item.ji === params.ji
+      );
+
+    if (!duplicate) {
+      candidates.push(params);
+    }
+  }
+
+  const attempts = [];
+
+  for (
+    const params
+    of candidates
+  ) {
+    let pageNo = 1;
+    let totalCount = 0;
+    let loadedCount = 0;
+    const loadedItems = [];
+
+    while (
+      pageNo <= maxPages
+    ) {
+      try {
+        const page =
+          await fetchBuildingHubPage(
+            "getBrExposInfo",
+            params,
+            pageNo,
+            numOfRows
+          );
+
+        totalCount =
+          page.totalCount;
+
+        loadedCount +=
+          page.items.length;
+
+        const mapped =
+          page.items.map(
+            mapExposCandidate
+          );
+
+        loadedItems.push(
+          ...mapped
+        );
+
+        const exactMatch =
+          mapped.find(
+            (candidate) => {
+              const dongMatched =
+                !targetDong ||
+                candidate.normalizedDong ===
+                  targetDong;
+
+              const hoMatched =
+                !targetHo ||
+                candidate.normalizedHo ===
+                  targetHo;
+
+              return (
+                dongMatched &&
+                hoMatched &&
+                (
+                  targetDong ||
+                  targetHo
+                )
+              );
+            }
+          );
+
+        attempts.push({
+          operation:
+            "getBrExposInfo",
+
+          lookupSource:
+            params.lookupSource,
+
+          pageNo,
+
+          params,
+
+          success:
+            true,
+
+          totalCount,
+
+          loadedCount
+        });
+
+        if (exactMatch) {
+          return {
+            matched:
+              true,
+
+            exactMatch,
+
+            lookupSource:
+              params.lookupSource,
+
+            matchedParams:
+              params,
+
+            attempts,
+
+            totalCount,
+
+            loadedCount,
+
+            pageCount:
+              pageNo,
+
+            truncated:
+              false,
+
+            items:
+              loadedItems
+          };
+        }
+
+        const totalPages =
+          Math.max(
+            1,
+            Math.ceil(
+              totalCount /
+              numOfRows
+            )
+          );
+
+        if (
+          pageNo >= totalPages
+        ) {
+          return {
+            matched:
+              false,
+
+            exactMatch:
+              null,
+
+            lookupSource:
+              params.lookupSource,
+
+            matchedParams:
+              params,
+
+            attempts,
+
+            totalCount,
+
+            loadedCount,
+
+            pageCount:
+              pageNo,
+
+            truncated:
+              false,
+
+            items:
+              loadedItems
+          };
+        }
+
+        pageNo += 1;
+
+        await sleep(30);
+      } catch (error) {
+        attempts.push({
+          operation:
+            "getBrExposInfo",
+
+          lookupSource:
+            params.lookupSource,
+
+          pageNo,
+
+          params,
+
+          success:
+            false,
+
+          error:
+            error instanceof Error
+              ? error.message
+              : String(error)
+        });
+
+        break;
+      }
+    }
+
+    if (
+      pageNo > maxPages
+    ) {
+      return {
+        matched:
+          false,
+
+        exactMatch:
+          null,
+
+        lookupSource:
+          params.lookupSource,
+
+        matchedParams:
+          params,
+
+        attempts,
+
+        totalCount,
+
+        loadedCount,
+
+        pageCount:
+          maxPages,
+
+        truncated:
+          true,
+
+        items:
+          loadedItems
+      };
+    }
+  }
+
+  return {
+    matched:
+      false,
+
+    exactMatch:
+      null,
+
+    lookupSource:
+      "ALL_LOOKUPS_FAILED",
+
+    matchedParams:
+      null,
+
+    attempts,
+
+    totalCount:
+      0,
+
+    loadedCount:
+      0,
+
+    pageCount:
+      0,
+
+    truncated:
+      false,
+
+    items:
+      []
+  };
+}
+
 /* =========================================================
  * 표제부 데이터 매핑
  * ======================================================= */
@@ -3024,9 +3357,10 @@ async function analyzeOneBuilding(
 
   if (shouldSearchExpos) {
     exposRawResult =
-      await searchExposWithFallback(
+      await searchTargetExposWithPaging(
         juso,
         titleRawResult.matchedParams,
+        detail,
         {
           exposRowsPerPage:
             Math.min(
@@ -3039,17 +3373,17 @@ async function analyzeOneBuilding(
               ),
               100
             ),
-
+    
           exposMaxPages:
             Math.min(
               Math.max(
                 Number(
                   options.exposMaxPages ||
-                  3
+                  20
                 ),
                 1
               ),
-              5
+              50
             )
         }
       );
