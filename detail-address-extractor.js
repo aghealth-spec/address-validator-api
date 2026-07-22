@@ -85,6 +85,78 @@ const ROW_DELAY_MS = getSafeNumber(
 );
 
 /* =========================================================
+ * 결과 엑셀 노출 설정
+ * ======================================================= */
+
+const EXCEL_OUTPUT_MODE = {
+  ALL: "all",
+  PARTIAL: "partial"
+};
+
+/*
+ * 일부노출 선택 시 결과 엑셀에 포함할 항목입니다.
+ *
+ * 아래 배열의 순서대로 결과 엑셀 열이 만들어집니다.
+ */
+const PARTIAL_OUTPUT_COLUMNS = [
+  "순번",
+  "주문번호",
+  "입력우편번호",
+  "입력주소",
+  "주소처리성공",
+  "전체층수",
+  "지상층수",
+  "지하층수",
+  "건축물대장조회",
+  "동호검증사유",
+  "상세주소상태",
+  "주소분석실패사유"
+];
+
+/*
+ * 결과 엑셀 열별 너비입니다.
+ */
+const EXCEL_COLUMN_WIDTHS = {
+  순번: 7,
+  주문번호: 22,
+  입력우편번호: 14,
+  입력주소: 60,
+  주소처리성공: 14,
+
+  기본주소: 45,
+  도로명주소: 55,
+  지번주소: 55,
+  API우편번호: 14,
+  건물명: 30,
+  건물관리번호: 28,
+
+  전체층수: 26,
+  지상층수: 12,
+  지하층수: 12,
+  건축물대장조회: 18,
+  건축물대장건물명: 30,
+  건축물대장동명: 20,
+  건축물대장PK: 32,
+  건축물대장유형: 24,
+  건축물조회방식: 28,
+  동호검증상태: 28,
+  동호검증사유: 45,
+  건축물대장조회사유: 55,
+
+  상세주소원문: 30,
+  상세주소정규화: 35,
+  동: 12,
+  층: 12,
+  호: 12,
+  기타정보: 30,
+  상세주소유형: 22,
+  상세주소상태: 22,
+  신뢰도: 10,
+  검색키워드: 50,
+  주소분석실패사유: 50
+};
+
+/* =========================================================
  * HTTP Keep-Alive
  * ======================================================= */
 
@@ -310,7 +382,7 @@ function getAxiosErrorReason(error) {
         ? `API 오류(${status}): ${serialized}`
         : serialized;
     } catch {
-      // JSON 변환 실패 시 기본 오류 사용
+      // JSON 변환 실패 시 기본 오류를 사용합니다.
     }
   }
 
@@ -335,7 +407,9 @@ function getAxiosErrorReason(error) {
     : message;
 }
 
-function makeDownloadFileName() {
+function makeDownloadFileName(
+  outputMode = EXCEL_OUTPUT_MODE.ALL
+) {
   const now = new Date();
 
   const pad = (value) => {
@@ -354,7 +428,15 @@ function makeDownloadFileName() {
     pad(now.getSeconds())
   ].join("");
 
-  return `주소분석결과_${dateText}_${timeText}.xlsx`;
+  const modeText =
+    outputMode === EXCEL_OUTPUT_MODE.PARTIAL
+      ? "일부노출"
+      : "전체노출";
+
+  return (
+    `주소분석결과_${modeText}_` +
+    `${dateText}_${timeText}.xlsx`
+  );
 }
 
 function makeEmptyBuildingResult(reason = "") {
@@ -377,6 +459,60 @@ function makeEmptyBuildingResult(reason = "") {
     buildingValidationStatus: "",
     buildingValidationReason: ""
   };
+}
+
+/*
+ * 업로드 화면에서 전달된 outputMode 값을 검증합니다.
+ *
+ * all     : 전체노출
+ * partial : 일부노출
+ *
+ * 값이 없거나 올바르지 않으면 전체노출로 처리합니다.
+ */
+function normalizeExcelOutputMode(value) {
+  const normalizedValue = String(
+    value || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (
+    normalizedValue ===
+    EXCEL_OUTPUT_MODE.PARTIAL
+  ) {
+    return EXCEL_OUTPUT_MODE.PARTIAL;
+  }
+
+  return EXCEL_OUTPUT_MODE.ALL;
+}
+
+/*
+ * 결과 행에서 일부노출 항목만 추출합니다.
+ */
+function filterOutputRows(
+  outputRows,
+  outputMode
+) {
+  if (
+    outputMode !==
+    EXCEL_OUTPUT_MODE.PARTIAL
+  ) {
+    return outputRows;
+  }
+
+  return outputRows.map((row) => {
+    const filteredRow = {};
+
+    for (
+      const columnName of
+      PARTIAL_OUTPUT_COLUMNS
+    ) {
+      filteredRow[columnName] =
+        row[columnName] ?? "";
+    }
+
+    return filteredRow;
+  });
 }
 
 /* =========================================================
@@ -887,10 +1023,30 @@ function makeOutputRow({
 
 function createExcelResultFile(
   jobId,
-  outputRows
+  outputRows,
+  outputMode = EXCEL_OUTPUT_MODE.ALL
 ) {
+  const normalizedOutputMode =
+    normalizeExcelOutputMode(
+      outputMode
+    );
+
+  const excelRows =
+    filterOutputRows(
+      outputRows,
+      normalizedOutputMode
+    );
+
+  if (excelRows.length === 0) {
+    throw new Error(
+      "결과 엑셀에 저장할 데이터가 없습니다."
+    );
+  }
+
   const outputSheet =
-    XLSX.utils.json_to_sheet(outputRows);
+    XLSX.utils.json_to_sheet(
+      excelRows
+    );
 
   const outputWorkbook =
     XLSX.utils.book_new();
@@ -901,44 +1057,24 @@ function createExcelResultFile(
     "주소분석결과"
   );
 
-  outputSheet["!cols"] = [
-    { wch: 7 },
-    { wch: 22 },
-    { wch: 14 },
-    { wch: 60 },
-    { wch: 14 },
-    { wch: 45 },
-    { wch: 55 },
-    { wch: 55 },
-    { wch: 14 },
-    { wch: 30 },
-    { wch: 28 },
+  /*
+   * 실제 출력되는 열 이름을 기준으로
+   * 열 너비를 설정합니다.
+   */
+  const outputColumnNames =
+    Object.keys(excelRows[0]);
 
-    { wch: 26 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 18 },
-    { wch: 30 },
-    { wch: 20 },
-    { wch: 32 },
-    { wch: 24 },
-    { wch: 28 },
-    { wch: 28 },
-    { wch: 45 },
-    { wch: 55 },
-
-    { wch: 30 },
-    { wch: 35 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 30 },
-    { wch: 22 },
-    { wch: 22 },
-    { wch: 10 },
-    { wch: 50 },
-    { wch: 50 }
-  ];
+  outputSheet["!cols"] =
+    outputColumnNames.map(
+      (columnName) => {
+        return {
+          wch:
+            EXCEL_COLUMN_WIDTHS[
+              columnName
+            ] || 20
+        };
+      }
+    );
 
   const outputBuffer =
     XLSX.write(
@@ -965,8 +1101,60 @@ function createExcelResultFile(
 
   return {
     outputPath,
+
     outputSize:
-      outputBuffer.length
+      outputBuffer.length,
+
+    outputMode:
+      normalizedOutputMode,
+
+    outputColumns:
+      outputColumnNames
+  };
+}
+
+/* =========================================================
+ * 엑셀 작업 기본정보 생성
+ * ======================================================= */
+
+function createInitialExcelJob(
+  jobId,
+  outputMode
+) {
+  return {
+    jobId,
+
+    outputMode:
+      normalizeExcelOutputMode(
+        outputMode
+      ),
+
+    outputColumns: [],
+
+    status: "WAITING",
+
+    current: 0,
+    total: 0,
+    percent: 0,
+
+    currentOrderNo: "",
+    currentAddress: "",
+
+    outputPath: "",
+    outputSize: 0,
+
+    downloadName: "",
+
+    error: "",
+
+    message:
+      "작업을 준비하고 있습니다.",
+
+    createdAt:
+      Date.now(),
+
+    updatedAt:
+      Date.now()
   };
 }
 
@@ -976,8 +1164,14 @@ function createExcelResultFile(
 
 async function processExcelJob(
   jobId,
-  uploadedFile
+  uploadedFile,
+  outputMode = EXCEL_OUTPUT_MODE.ALL
 ) {
+  const normalizedOutputMode =
+    normalizeExcelOutputMode(
+      outputMode
+    );
+
   let uploadedPath =
     uploadedFile?.path || "";
 
@@ -991,7 +1185,12 @@ async function processExcelJob(
       jobId,
       {
         status: "READING",
-        message: "엑셀 파일을 읽고 있습니다."
+
+        outputMode:
+          normalizedOutputMode,
+
+        message:
+          "엑셀 파일을 읽고 있습니다."
       }
     );
 
@@ -1090,15 +1289,21 @@ async function processExcelJob(
       jobId,
       {
         status: "PROCESSING",
+
+        outputMode:
+          normalizedOutputMode,
+
         current: 0,
         total,
         percent: 0,
-        message: `0/${total}개 처리 중`
+
+        message:
+          `0/${total}개 처리 중`
       }
     );
 
     console.log(
-      `[엑셀 분석 시작] 작업 ${jobId} / 총 ${total}건`
+      `[엑셀 분석 시작] 작업 ${jobId} / 총 ${total}건 / 출력방식: ${normalizedOutputMode}`
     );
 
     for (
@@ -1169,6 +1374,7 @@ async function processExcelJob(
         result = {
           address: {
             ok: false,
+            inputAddress: "",
             reason: "주소가 비어 있습니다."
           },
 
@@ -1259,7 +1465,8 @@ async function processExcelJob(
     const fileResult =
       createExcelResultFile(
         jobId,
-        outputRows
+        outputRows,
+        normalizedOutputMode
       );
 
     outputPath =
@@ -1286,8 +1493,16 @@ async function processExcelJob(
         outputSize:
           fileResult.outputSize,
 
+        outputMode:
+          fileResult.outputMode,
+
+        outputColumns:
+          fileResult.outputColumns,
+
         downloadName:
-          makeDownloadFileName(),
+          makeDownloadFileName(
+            fileResult.outputMode
+          ),
 
         completedAt:
           Date.now(),
@@ -1298,7 +1513,7 @@ async function processExcelJob(
     );
 
     console.log(
-      `[엑셀 완료] 작업 ${jobId} / 총 ${total}건 / ${totalElapsed}ms / ${fileResult.outputSize} bytes`
+      `[엑셀 완료] 작업 ${jobId} / 총 ${total}건 / 출력방식: ${fileResult.outputMode} / ${totalElapsed}ms / ${fileResult.outputSize} bytes`
     );
   } catch (error) {
     console.error(
@@ -1325,6 +1540,83 @@ async function processExcelJob(
       }
     );
   }
+}
+
+/* =========================================================
+ * 엑셀 업로드 작업 시작 공통 처리
+ * ======================================================= */
+
+function startExcelUploadJob(
+  req,
+  res
+) {
+  if (!req.file) {
+    return res
+      .status(400)
+      .json({
+        ok: false,
+
+        reason:
+          "업로드된 엑셀 파일이 없습니다."
+      });
+  }
+
+  const outputMode =
+    normalizeExcelOutputMode(
+      req.body?.outputMode
+    );
+
+  const jobId =
+    createJobId();
+
+  excelJobs.set(
+    jobId,
+    createInitialExcelJob(
+      jobId,
+      outputMode
+    )
+  );
+
+  res
+    .status(202)
+    .json({
+      ok: true,
+
+      jobId,
+
+      outputMode,
+
+      status: "WAITING",
+
+      current: 0,
+      total: 0,
+      percent: 0,
+
+      progressUrl:
+        `/api/excel/progress/${jobId}`,
+
+      downloadUrl:
+        `/api/excel/download/${jobId}`
+    });
+
+  /*
+   * 업로드 요청에는 작업 ID만 즉시 반환하고,
+   * 실제 주소 분석은 응답 이후 실행합니다.
+   */
+  setImmediate(() => {
+    processExcelJob(
+      jobId,
+      req.file,
+      outputMode
+    ).catch((error) => {
+      console.error(
+        `[엑셀 비동기 실행 오류] 작업 ${jobId}:`,
+        error
+      );
+    });
+  });
+
+  return;
 }
 
 /* =========================================================
@@ -1417,6 +1709,17 @@ app.get(
       rowDelayMs:
         ROW_DELAY_MS,
 
+      excelOutputModes: {
+        all:
+          "전체노출",
+
+        partial:
+          "일부노출"
+      },
+
+      partialOutputColumns:
+        PARTIAL_OUTPUT_COLUMNS,
+
       activeExcelJobs:
         excelJobs.size,
 
@@ -1475,6 +1778,7 @@ app.post(
         .status(500)
         .json({
           ok: false,
+
           reason:
             getErrorMessage(error)
         });
@@ -1492,89 +1796,10 @@ app.post(
   upload.single("file"),
 
   (req, res) => {
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-
-          reason:
-            "업로드된 엑셀 파일이 없습니다."
-        });
-    }
-
-    const jobId =
-      createJobId();
-
-    excelJobs.set(
-      jobId,
-      {
-        jobId,
-
-        status: "WAITING",
-
-        current: 0,
-        total: 0,
-        percent: 0,
-
-        currentOrderNo: "",
-        currentAddress: "",
-
-        outputPath: "",
-        outputSize: 0,
-
-        downloadName: "",
-
-        error: "",
-
-        message:
-          "작업을 준비하고 있습니다.",
-
-        createdAt:
-          Date.now(),
-
-        updatedAt:
-          Date.now()
-      }
+    return startExcelUploadJob(
+      req,
+      res
     );
-
-    /*
-     * 업로드 요청에는 작업 ID만 즉시 반환합니다.
-     * 실제 엑셀 분석은 응답 이후 계속 진행됩니다.
-     */
-    res
-      .status(202)
-      .json({
-        ok: true,
-
-        jobId,
-
-        status: "WAITING",
-
-        current: 0,
-        total: 0,
-        percent: 0,
-
-        progressUrl:
-          `/api/excel/progress/${jobId}`,
-
-        downloadUrl:
-          `/api/excel/download/${jobId}`
-      });
-
-    setImmediate(() => {
-      processExcelJob(
-        jobId,
-        req.file
-      ).catch((error) => {
-        console.error(
-          `[엑셀 비동기 실행 오류] 작업 ${jobId}:`,
-          error
-        );
-      });
-    });
-
-    return;
   }
 );
 
@@ -1591,85 +1816,10 @@ app.post(
   upload.single("file"),
 
   (req, res) => {
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-
-          reason:
-            "업로드된 엑셀 파일이 없습니다."
-        });
-    }
-
-    const jobId =
-      createJobId();
-
-    excelJobs.set(
-      jobId,
-      {
-        jobId,
-
-        status: "WAITING",
-
-        current: 0,
-        total: 0,
-        percent: 0,
-
-        currentOrderNo: "",
-        currentAddress: "",
-
-        outputPath: "",
-        outputSize: 0,
-
-        downloadName: "",
-
-        error: "",
-
-        message:
-          "작업을 준비하고 있습니다.",
-
-        createdAt:
-          Date.now(),
-
-        updatedAt:
-          Date.now()
-      }
+    return startExcelUploadJob(
+      req,
+      res
     );
-
-    res
-      .status(202)
-      .json({
-        ok: true,
-
-        jobId,
-
-        status: "WAITING",
-
-        current: 0,
-        total: 0,
-        percent: 0,
-
-        progressUrl:
-          `/api/excel/progress/${jobId}`,
-
-        downloadUrl:
-          `/api/excel/download/${jobId}`
-      });
-
-    setImmediate(() => {
-      processExcelJob(
-        jobId,
-        req.file
-      ).catch((error) => {
-        console.error(
-          `[엑셀 비동기 실행 오류] 작업 ${jobId}:`,
-          error
-        );
-      });
-    });
-
-    return;
   }
 );
 
@@ -1701,6 +1851,13 @@ app.get(
 
       jobId:
         job.jobId,
+
+      outputMode:
+        job.outputMode ||
+        EXCEL_OUTPUT_MODE.ALL,
+
+      outputColumns:
+        job.outputColumns || [],
 
       status:
         job.status,
@@ -1820,7 +1977,9 @@ app.get(
       job.outputPath,
 
       job.downloadName ||
-      makeDownloadFileName(),
+      makeDownloadFileName(
+        job.outputMode
+      ),
 
       (error) => {
         if (error) {
@@ -2033,6 +2192,16 @@ const server = app.listen(
     console.log(
       "ROW_DELAY_MS:",
       `${ROW_DELAY_MS}ms`
+    );
+
+    console.log(
+      "EXCEL_OUTPUT_MODE:",
+      "all 또는 partial"
+    );
+
+    console.log(
+      "PARTIAL_OUTPUT_COLUMNS:",
+      PARTIAL_OUTPUT_COLUMNS.join(", ")
     );
   }
 );
