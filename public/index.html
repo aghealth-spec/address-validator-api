@@ -1,7 +1,9 @@
+```html
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
+
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1"
@@ -16,13 +18,19 @@
 
     body {
       margin: 0;
-      font-family: Arial, "Noto Sans KR", sans-serif;
+      font-family:
+        Arial,
+        "Noto Sans KR",
+        sans-serif;
       background: #f4f6f8;
       color: #222;
     }
 
     .wrap {
-      width: min(760px, calc(100% - 32px));
+      width: min(
+        760px,
+        calc(100% - 32px)
+      );
       margin: 64px auto;
     }
 
@@ -31,7 +39,9 @@
       border: 1px solid #e5e7eb;
       border-radius: 16px;
       padding: 32px;
-      box-shadow: 0 12px 30px rgba(0, 0, 0, .06);
+      box-shadow:
+        0 12px 30px
+        rgba(0, 0, 0, .06);
     }
 
     h1 {
@@ -53,6 +63,55 @@
       margin-bottom: 24px;
       line-height: 1.6;
       font-size: 14px;
+    }
+
+    /* =====================================================
+     * 샘플 엑셀 다운로드
+     * =================================================== */
+
+    .sample-download {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .sample-download-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border: 1px solid #111827;
+      border-radius: 7px;
+      background: #fff;
+      color: #111827;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      text-decoration: none;
+      transition:
+        background-color .2s ease,
+        color .2s ease;
+    }
+
+    .sample-download-link:hover {
+      background: #111827;
+      color: #fff;
+    }
+
+    .sample-download-link:focus-visible {
+      outline:
+        3px solid
+        rgba(17, 24, 39, .18);
+      outline-offset: 2px;
+    }
+
+    .sample-download-desc {
+      font-size: 12px;
+      color: #6b7280;
     }
 
     /* =====================================================
@@ -131,12 +190,15 @@
     .output-mode-content {
       border-color: #111827;
       background: #f8fafc;
-      box-shadow: 0 0 0 1px #111827;
+      box-shadow:
+        0 0 0 1px #111827;
     }
 
     .output-mode-item input:focus-visible +
     .output-mode-content {
-      outline: 3px solid rgba(17, 24, 39, .18);
+      outline:
+        3px solid
+        rgba(17, 24, 39, .18);
       outline-offset: 2px;
     }
 
@@ -151,6 +213,120 @@
 
     .output-column-notice strong {
       color: #374151;
+    }
+
+    /* =====================================================
+     * 상세주소 상태 도움말
+     * =================================================== */
+
+    .detail-status-help {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .detail-status-help-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: auto;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: #374151;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .detail-status-help-button:hover {
+      color: #111827;
+      text-decoration: underline;
+    }
+
+    .detail-status-help-button:focus-visible {
+      outline:
+        3px solid
+        rgba(17, 24, 39, .18);
+      outline-offset: 3px;
+    }
+
+    .detail-status-help-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid #9ca3af;
+      border-radius: 50%;
+      background: #fff;
+      color: #4b5563;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .detail-status-help-content {
+      margin-top: 10px;
+      padding: 14px;
+      border: 1px solid #dbe2ea;
+      border-radius: 10px;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.65;
+      color: #4b5563;
+    }
+
+    .detail-status-help-content[hidden] {
+      display: none;
+    }
+
+    .detail-status-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .detail-status-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+    }
+
+    .detail-status-list li + li {
+      margin-top: 12px;
+    }
+
+    .detail-status-label {
+      flex: 0 0 104px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .detail-status-description {
+      display: block;
+      min-width: 0;
+      color: #4b5563;
+    }
+
+    .detail-status-example {
+      display: block;
+      margin-top: 5px;
+      padding: 7px 9px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #fff;
+      color: #374151;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .detail-status-warning {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      color: #6b7280;
     }
 
     /* =====================================================
@@ -228,28 +404,33 @@
       width: 0;
       height: 100%;
       border-radius: 999px;
-      background: linear-gradient(
-        90deg,
-        #111827,
-        #4b5563
-      );
+      background:
+        linear-gradient(
+          90deg,
+          #111827,
+          #4b5563
+        );
       transition: width .35s ease;
     }
 
-    .progress-area.is-success .progress-bar {
-      background: linear-gradient(
-        90deg,
-        #047857,
-        #34d399
-      );
+    .progress-area.is-success
+    .progress-bar {
+      background:
+        linear-gradient(
+          90deg,
+          #047857,
+          #34d399
+        );
     }
 
-    .progress-area.is-error .progress-bar {
-      background: linear-gradient(
-        90deg,
-        #b91c1c,
-        #ef4444
-      );
+    .progress-area.is-error
+    .progress-bar {
+      background:
+        linear-gradient(
+          90deg,
+          #b91c1c,
+          #ef4444
+        );
     }
 
     .status {
@@ -289,6 +470,20 @@
         min-height: auto;
       }
 
+      .sample-download {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .detail-status-list li {
+        display: block;
+      }
+
+      .detail-status-label {
+        display: block;
+        margin-bottom: 3px;
+      }
+
       h1 {
         font-size: 24px;
       }
@@ -299,7 +494,9 @@
 <body>
   <main class="wrap">
     <section class="card">
-      <h1>엑셀 주소 분석</h1>
+      <h1>
+        엑셀 주소 분석
+      </h1>
 
       <p class="desc">
         엑셀의 주소를 기준으로 기본주소를 먼저 확정한 뒤,
@@ -307,9 +504,30 @@
       </p>
 
       <div class="notice">
-        <strong>필수 헤더:</strong> 주소<br>
-        <strong>선택 헤더:</strong> 우편번호, 주문번호<br>
-        지원 파일: .xlsx, .xls / 첫 번째 시트를 처리합니다.
+        <strong>필수 헤더:</strong>
+        주소
+        <br>
+
+        <strong>선택 헤더:</strong>
+        우편번호, 주문번호
+        <br>
+
+        지원 파일: .xlsx, .xls /
+        첫 번째 시트를 처리합니다.
+
+        <div class="sample-download">
+          <a
+            href="/sample/address-analysis-sample.xlsx"
+            download="주소분석_업로드_샘플.xlsx"
+            class="sample-download-link"
+          >
+            엑셀 업로드 샘플 다운로드
+          </a>
+
+          <span class="sample-download-desc">
+            주소·우편번호·주문번호 입력 예시가 포함되어 있습니다.
+          </span>
+        </div>
       </div>
 
       <form id="uploadForm">
@@ -365,11 +583,99 @@
           </div>
 
           <div class="output-column-notice">
-            <strong>일부노출 항목:</strong><br>
+            <strong>
+              일부노출 항목:
+            </strong>
+            <br>
+
             순번, 주문번호, 입력우편번호, 입력주소,
             주소처리성공, 전체층수, 지상층수, 지하층수,
             건축물대장조회, 동호검증사유, 상세주소상태,
             주소분석실패사유
+
+            <div class="detail-status-help">
+              <button
+                id="detailStatusHelpButton"
+                class="detail-status-help-button"
+                type="button"
+                aria-expanded="false"
+                aria-controls="detailStatusHelpContent"
+              >
+                상세주소상태 안내
+
+                <span
+                  class="detail-status-help-icon"
+                  aria-hidden="true"
+                >
+                  ?
+                </span>
+              </button>
+
+              <div
+                id="detailStatusHelpContent"
+                class="detail-status-help-content"
+                hidden
+              >
+                <ul class="detail-status-list">
+                  <li>
+                    <strong class="detail-status-label">
+                      형식 변환
+                    </strong>
+
+                    <span class="detail-status-description">
+                      상세주소의 의미는 유지하면서
+                      띄어쓰기와 동·층·호 표기 형식만
+                      표준화한 상태입니다.
+
+                      <span class="detail-status-example">
+                        예: 101동1203호
+                        → 101동 1203호
+                      </span>
+                    </span>
+                  </li>
+
+                  <li>
+                    <strong class="detail-status-label">
+                      보정 필요
+                    </strong>
+
+                    <span class="detail-status-description">
+                      동·층·호로 추정되는 값은 확인됐지만,
+                      표기가 불완전해 자동 보정 또는
+                      확인이 필요한 상태입니다.
+
+                      <span class="detail-status-example">
+                        예: 101-1203
+                        → 101동 1203호로 추정
+                      </span>
+                    </span>
+                  </li>
+
+                  <li>
+                    <strong class="detail-status-label">
+                      상세주소 확인 필요
+                    </strong>
+
+                    <span class="detail-status-description">
+                      입력한 동·호를 건축물대장 전유부에서
+                      확인하지 못했거나 상세주소 구조가
+                      불명확해 직접 확인이 필요한 상태입니다.
+
+                      <span class="detail-status-example">
+                        예: 101동 9999호
+                        → 전유부에서 해당 동·호 확인 안 됨
+                      </span>
+                    </span>
+                  </li>
+                </ul>
+
+                <div class="detail-status-warning">
+                  ※ 상세주소상태는 주소 문자열의 형식과
+                  건축물대장 조회 결과를 기준으로 표시됩니다.
+                  실제 배송 가능 여부를 최종 보장하는 항목은 아닙니다.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -476,8 +782,45 @@
         'input[name="outputMode"]'
       );
 
+    const detailStatusHelpButton =
+      document.getElementById(
+        "detailStatusHelpButton"
+      );
+
+    const detailStatusHelpContent =
+      document.getElementById(
+        "detailStatusHelpContent"
+      );
+
     let pollingStopped =
       false;
+
+    /* =====================================================
+     * 상세주소 상태 도움말
+     * =================================================== */
+
+    if (
+      detailStatusHelpButton &&
+      detailStatusHelpContent
+    ) {
+      detailStatusHelpButton.addEventListener(
+        "click",
+        function () {
+          const isOpened =
+            detailStatusHelpButton.getAttribute(
+              "aria-expanded"
+            ) === "true";
+
+          detailStatusHelpButton.setAttribute(
+            "aria-expanded",
+            String(!isOpened)
+          );
+
+          detailStatusHelpContent.hidden =
+            isOpened;
+        }
+      );
+    }
 
     /* =====================================================
      * 공통 표시
@@ -598,12 +941,15 @@
         return "partial";
       }
 
-      return selectedInput.value === "all"
-        ? "all"
-        : "partial";
+      return selectedInput.value ===
+        "all"
+          ? "all"
+          : "partial";
     }
 
-    function setFormDisabled(disabled) {
+    function setFormDisabled(
+      disabled
+    ) {
       button.disabled =
         disabled;
 
@@ -989,3 +1335,4 @@
   </script>
 </body>
 </html>
+```
