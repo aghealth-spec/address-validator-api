@@ -3542,10 +3542,16 @@ async function analyzeOneBuilding(
             ),
     
           exposMaxPages:
-            Number(
-              options.exposMaxPages ??
-              20
-            )
+          Math.min(
+            Math.max(
+              Number(
+                req.body?.exposMaxPages ??
+                20
+              ),
+              1
+            ),
+            100
+          )
         }
       );
   } else {
