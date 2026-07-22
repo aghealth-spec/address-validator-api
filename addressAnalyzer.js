@@ -92,12 +92,6 @@ function uniqueValues(values) {
 
 /* =========================================================
  * 건물명 검색어 변형
- *
- * 예:
- * 위시티일산블루밍5단지아파트
- * → 위시티일산블루밍5단지
- * → 위시티블루밍5단지
- * → 위시티 블루밍 5 단지
  * ======================================================= */
 
 function makeRegionAliasWords(localityText) {
@@ -128,11 +122,6 @@ function makeRegionAliasWords(localityText) {
       words.push(normalized);
     }
 
-    /*
-     * 일산동구 → 일산
-     * 일산서구 → 일산
-     * 분당구   → 분당
-     */
     const districtRoot =
       token.match(
         /^([가-힣]{2,})(?:동구|서구|남구|북구|중구)$/u
@@ -180,17 +169,11 @@ function addBuildingNameVariants(
       original,
       base,
 
-      /*
-       * 공백 제거
-       */
       base.replace(
         /\s+/gu,
         ""
       ),
 
-      /*
-       * 문자와 숫자 사이 공백
-       */
       base
         .replace(
           /([가-힣A-Za-z])([0-9])/gu,
@@ -380,46 +363,26 @@ function removeDetailSuffix(value) {
   return cleanAddress(
     String(value ?? "")
 
-      /*
-       * 501동 204호
-       * 501동204호
-       */
       .replace(
         /(?:\s|,)+(?:제\s*)?[0-9A-Za-z가-힣]+\s*동\s*[0-9A-Za-z가-힣]+\s*호.*$/u,
         ""
       )
 
-      /*
-       * 501동 204
-       * 501동204
-       */
       .replace(
         /(?:\s|,)+(?:제\s*)?[0-9A-Za-z가-힣]+\s*동\s*[0-9A-Za-z]{1,8}.*$/u,
         ""
       )
 
-      /*
-       * 2001호
-       * B101호
-       */
       .replace(
         /(?:\s|,)+[A-Za-z가-힣]{0,4}\d{1,6}[A-Za-z가-힣]{0,2}\s*호.*$/u,
         ""
       )
 
-      /*
-       * 3층 301호
-       * 지하 1층 B101호
-       */
       .replace(
         /(?:\s|,)+(?:지하|지상|B)?\s*\d+\s*층.*$/u,
         ""
       )
 
-      /*
-       * 501-904
-       * 608/603
-       */
       .replace(
         /(?:\s|,)+\d{1,4}\s*[-/]\s*\d{1,5}(?:\s*호)?.*$/u,
         ""
@@ -468,9 +431,6 @@ function makeSearchCandidates(
     withoutDetailOriginal
   );
 
-  /*
-   * 아파트 단어 제거
-   */
   candidates.add(
     cleanAddress(
       withoutDetail.replace(
@@ -489,9 +449,6 @@ function makeSearchCandidates(
     )
   );
 
-  /*
-   * 괄호 제거
-   */
   candidates.add(
     removeParentheses(
       withoutDetail
@@ -504,9 +461,6 @@ function makeSearchCandidates(
     )
   );
 
-  /*
-   * 읍·면·동·가 뒤에 있는 건물명 추출
-   */
   const buildingMatch =
     withoutDetail.match(
       /(?:읍|면|동|가)\s+(.+)$/u
@@ -551,9 +505,6 @@ function makeSearchCandidates(
     );
   }
 
-  /*
-   * 지역명 + 건물명
-   */
   const localityBuildingMatch =
     withoutDetail.match(
       /^(.+?(?:시|군|구)\s+.+?(?:읍|면|동|가))\s+(.+)$/u
@@ -581,18 +532,12 @@ function makeSearchCandidates(
       )}`
     );
 
-    /*
-     * 건물명 단독 변형 후보
-     */
     addBuildingNameVariants(
       candidates,
       building,
       locality
     );
 
-    /*
-     * 지역명 + 변형 건물명 후보
-     */
     const buildingVariants =
       new Set();
 
@@ -611,9 +556,6 @@ function makeSearchCandidates(
       );
     }
 
-    /*
-     * 법정동 + 건물명
-     */
     const dongMatch =
       locality.match(
         /([가-힣0-9]+동)$/u
@@ -642,9 +584,6 @@ function makeSearchCandidates(
     }
   }
 
-  /*
-   * 지번주소 후보
-   */
   const jibunMatch =
     expandedText.match(
       /^(.+?[가-힣]+(?:읍|면|동|리)\s+(?:산\s*)?\d+(?:-\d+)?)(?:번지)?(?:\s|,|$)/u
@@ -658,9 +597,6 @@ function makeSearchCandidates(
     );
   }
 
-  /*
-   * 도로명주소 후보
-   */
   const roadMatch =
     expandedText.match(
       /^(.+?(?:대로|로|길)\s*\d+(?:-\d+)?)(?:\s|,|\(|$)/u
@@ -999,9 +935,6 @@ function calculateAddressScore(
     score += 60;
   }
 
-  /*
-   * 입력 건물명이 API 건물명보다 긴 경우도 반영
-   */
   if (
     building &&
     fuzzyContains(
@@ -1299,9 +1232,6 @@ function inferGroundFloorFromUnit(
     String(value ?? "")
       .replace(/\D/g, "");
 
-  /*
-   * 505호 → 5층
-   */
   if (
     digits.length === 3
   ) {
@@ -1310,9 +1240,6 @@ function inferGroundFloorFromUnit(
     );
   }
 
-  /*
-   * 1203호 → 12층
-   */
   if (
     digits.length === 4
   ) {
@@ -1484,10 +1411,6 @@ function parseDetailText(value) {
     };
   }
 
-  /*
-   * B1F → 지하 1층
-   * 3F → 3층
-   */
   text =
     text
       .replace(
@@ -1503,27 +1426,18 @@ function parseDetailText(value) {
         "지하 $1층"
       );
 
-  /*
-   * 101동505호 → 101동 505호
-   */
   text =
     text.replace(
       /([0-9A-Za-z가-힣]+동)\s*([0-9A-Za-z가-힣]{1,12}호)/gu,
       "$1 $2"
     );
 
-  /*
-   * 5층505호 → 5층 505호
-   */
   text =
     text.replace(
       /((?:지하\s*)?\d+층)\s*([A-Za-z가-힣]?\d+[A-Za-z가-힣]{0,2}호)/gu,
       "$1 $2"
     );
 
-  /*
-   * 101동 / A동 / 우측동
-   */
   const dongMatch =
     text.match(
       /(?:^|[\s,])((?:제\s*)?[가-힣A-Za-z0-9]+)\s*동(?=\s|,|\d|$)/u
@@ -1541,9 +1455,6 @@ function parseDetailText(value) {
       );
   }
 
-  /*
-   * 3층 / 지하 1층 / B1층
-   */
   const floorMatch =
     text.match(
       /(?:^|[\s,])((?:지하|지상)\s*\d+|B\s*\d+|\d+)\s*층/u
@@ -1562,9 +1473,6 @@ function parseDetailText(value) {
       );
   }
 
-  /*
-   * 301호 / B101호 / BB39호
-   */
   const hoMatch =
     text.match(
       /(?:^|[\s,])([A-Za-z가-힣]{0,4}\d+[A-Za-z가-힣]{0,2})\s*호/u
@@ -1581,16 +1489,6 @@ function parseDetailText(value) {
       );
   }
 
-  /*
-   * 501-904 / 608/603
-   *
-   * 앞에 단지명이나 건물명이 붙어 있어도
-   * 숫자-숫자 부분을 동·호로 변환합니다.
-   *
-   * 예:
-   * 아델리움 102-1603
-   * 신동아4단지 114-913
-   */
   if (
     !dong &&
     !ho
@@ -1616,10 +1514,6 @@ function parseDetailText(value) {
       type =
         "동-호 축약형";
 
-      /*
-       * 동·호가 명확하게 변환된 경우
-       * 남은 문자열 유무에 따라 최종 상태를 다시 판단합니다.
-       */
       status =
         "정상";
 
@@ -1628,9 +1522,6 @@ function parseDetailText(value) {
     }
   }
 
-  /*
-   * 숫자만 남은 경우 호수
-   */
   if (
     !ho &&
     /^\s*\d{2,5}\s*$/u.test(text)
@@ -1653,9 +1544,6 @@ function parseDetailText(value) {
       "중간";
   }
 
-  /*
-   * BB39 / A301
-   */
   if (
     !ho &&
     /^\s*[A-Za-z]{1,4}\d{1,5}\s*$/u.test(
@@ -1682,10 +1570,6 @@ function parseDetailText(value) {
       "중간";
   }
 
-  /*
-   * 302아름매션
-   * 102리코헤어
-   */
   if (!ho) {
     const attachedMatch =
       text.match(
@@ -1736,9 +1620,6 @@ function parseDetailText(value) {
         .join(" ")
     );
 
-  /*
-   * 최종 상태 판정
-   */
   if (
     dong &&
     ho
@@ -1749,11 +1630,6 @@ function parseDetailText(value) {
       type = "동·호";
     }
 
-    /*
-     * 축약형까지 포함해 동·호가 추출됐더라도
-     * 건물명, 상호명 등 나머지 문자열이 남으면
-     * 보정 필요로 구분합니다.
-     */
     status =
       extra
         ? "보정 필요"
@@ -1865,9 +1741,6 @@ function parseDetailText(value) {
     remainingText:
       original,
 
-    /*
-     * server.js 호환 필드
-     */
     raw:
       original,
 
@@ -1914,9 +1787,6 @@ function extractDetailByConfirmedAddress(
   let remaining =
     original;
 
-  /*
-   * API 전체 주소 제거
-   */
   const removableValues =
     uniqueValues([
       apiAddress.roadAddr,
@@ -1940,9 +1810,6 @@ function extractDetailByConfirmedAddress(
       );
   }
 
-  /*
-   * 지역명 제거
-   */
   const addressParts =
     uniqueValues([
       apiAddress.siNm,
@@ -1971,9 +1838,6 @@ function extractDetailByConfirmedAddress(
       );
   }
 
-  /*
-   * 지번 제거
-   */
   const jibunNumber =
     getJibunNumberFromApi(
       apiAddress
@@ -1993,9 +1857,6 @@ function extractDetailByConfirmedAddress(
       );
   }
 
-  /*
-   * 도로명 건물번호 제거
-   */
   const roadNumber =
     makeRoadBuildingNumber(
       apiAddress
@@ -2009,10 +1870,6 @@ function extractDetailByConfirmedAddress(
       );
   }
 
-  /*
-   * 상세 건물명 목록 중
-   * 101동 같은 동명은 유지
-   */
   const detailBuildingNames =
     String(
       apiAddress.detBdNmList || ""
@@ -2051,10 +1908,6 @@ function extractDetailByConfirmedAddress(
       );
   }
 
-  /*
-   * 입력 건물명과 API 건물명의 일부가 다른 경우에도
-   * 일반적인 단지·아파트 표현을 정리합니다.
-   */
   remaining =
     remaining
       .replace(
@@ -2070,9 +1923,6 @@ function extractDetailByConfirmedAddress(
         " "
       );
 
-  /*
-   * 괄호 안 상세주소는 유지
-   */
   remaining =
     remaining.replace(
       /\(([^)]*)\)/gu,
@@ -2327,9 +2177,6 @@ async function analyzeAddress(
     apiZipCode:
       juso.zipNo,
 
-    /*
-     * 기존 엑셀 출력 호환값
-     */
     detailAddressOriginal:
       detail.original,
 
@@ -2357,9 +2204,6 @@ async function analyzeAddress(
     confidence:
       detail.confidence,
 
-    /*
-     * server.js 건축물대장 조회용 원본값
-     */
     admCd:
       juso.admCd,
 
@@ -2396,11 +2240,369 @@ async function analyzeAddress(
     emdNm:
       juso.emdNm,
 
-    /*
-     * 새 구조 핵심
-     */
     juso,
     detail
+  };
+}
+
+/* =========================================================
+ * 건축물 구조 검증 보조 함수
+ * ======================================================= */
+
+function toSafeNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const normalized =
+    String(value)
+      .replace(/,/g, "")
+      .replace(/[^\d.-]/g, "");
+
+  if (
+    normalized === "" ||
+    normalized === "-" ||
+    normalized === "."
+  ) {
+    return null;
+  }
+
+  const number =
+    Number(normalized);
+
+  return Number.isFinite(number)
+    ? number
+    : null;
+}
+
+function normalizeNameList(
+  values,
+  normalizer
+) {
+  const source =
+    Array.isArray(values)
+      ? values
+      : String(values ?? "")
+          .split(",");
+
+  return [
+    ...new Set(
+      source
+        .map((value) =>
+          normalizer(value)
+        )
+        .filter(Boolean)
+    )
+  ];
+}
+
+/* =========================================================
+ * 건축물 구조 기준 주소 검증
+ *
+ * server.js에서 건축물대장 조회 후 호출
+ * ======================================================= */
+
+function validateAddressStructure({
+  detail = {},
+  juso = {},
+
+  groundFloorCount = null,
+  undergroundFloorCount = null,
+
+  buildingRegisterDongNames = [],
+  exclusiveUnitNames = [],
+
+  mainPurposeName = "",
+  officialBuildingName = ""
+} = {}) {
+  const issues = [];
+  let riskScore = 0;
+
+  const groundFloors =
+    toSafeNumber(
+      groundFloorCount
+    );
+
+  const undergroundFloors =
+    toSafeNumber(
+      undergroundFloorCount
+    );
+
+  const buildingDongSource =
+    Array.isArray(
+      buildingRegisterDongNames
+    )
+      ? buildingRegisterDongNames
+      : String(
+          buildingRegisterDongNames ?? ""
+        ).split(",");
+
+  const jusoDongSource =
+    String(
+      juso?.detBdNmList || ""
+    ).split(",");
+
+  const normalizedDongNames =
+    normalizeNameList(
+      [
+        ...buildingDongSource,
+        ...jusoDongSource
+      ],
+      normalizeDongName
+    );
+
+  const normalizedHoNames =
+    normalizeNameList(
+      exclusiveUnitNames,
+      normalizeHoName
+    );
+
+  const targetDong =
+    detail?.targetDong ||
+    normalizeDongName(
+      detail?.dong
+    );
+
+  const targetHo =
+    detail?.targetHo ||
+    normalizeHoName(
+      detail?.ho
+    );
+
+  const floorType =
+    detail?.floorType ||
+    getFloorType(
+      detail?.floor
+    );
+
+  const inputFloor =
+    toSafeNumber(
+      detail?.inputFloor
+    );
+
+  const inferredFloor =
+    toSafeNumber(
+      detail?.inferredFloor
+    );
+
+  const targetFloor =
+    inputFloor ??
+    inferredFloor;
+
+  let groundFloorExceeded = false;
+
+  if (
+    floorType !== "UNDERGROUND" &&
+    targetFloor !== null &&
+    groundFloors !== null &&
+    groundFloors > 0 &&
+    targetFloor > groundFloors
+  ) {
+    groundFloorExceeded = true;
+
+    issues.push(
+      `입력층 ${targetFloor}층이 건물 지상 최대층 ${groundFloors}층을 초과합니다.`
+    );
+
+    riskScore += 70;
+  }
+
+  let undergroundFloorExceeded =
+    false;
+
+  if (
+    floorType === "UNDERGROUND" &&
+    inputFloor !== null &&
+    undergroundFloors !== null &&
+    undergroundFloors >= 0 &&
+    inputFloor > undergroundFloors
+  ) {
+    undergroundFloorExceeded = true;
+
+    issues.push(
+      `입력 지하 ${inputFloor}층이 건물 지하 최대층 ${undergroundFloors}층을 초과합니다.`
+    );
+
+    riskScore += 70;
+  }
+
+  let dongExists = null;
+
+  if (
+    targetDong &&
+    normalizedDongNames.length > 0
+  ) {
+    dongExists =
+      normalizedDongNames.includes(
+        targetDong
+      );
+
+    if (!dongExists) {
+      issues.push(
+        `입력 동 ${detail?.dong || targetDong}이 건축물 동 목록에 없습니다.`
+      );
+
+      riskScore += 80;
+    }
+  } else if (
+    !targetDong &&
+    normalizedDongNames.length > 1
+  ) {
+    issues.push(
+      "여러 동으로 구성된 건물이지만 입력 상세주소에 동 정보가 없습니다."
+    );
+
+    riskScore += 30;
+  }
+
+  let hoExists = null;
+
+  if (
+    targetHo &&
+    normalizedHoNames.length > 0
+  ) {
+    hoExists =
+      normalizedHoNames.includes(
+        targetHo
+      );
+
+    if (!hoExists) {
+      issues.push(
+        `입력 호 ${detail?.ho || targetHo}가 건축물대장 전유부 목록에 없습니다.`
+      );
+
+      riskScore += 80;
+    }
+  }
+
+  const purposeText =
+    String(
+      mainPurposeName || ""
+    );
+
+  const isHouse =
+    /단독주택|다가구주택/u.test(
+      purposeText
+    );
+
+  const inputExtra =
+    cleanAddress(
+      detail?.extra || ""
+    );
+
+  const officialName =
+    cleanAddress(
+      officialBuildingName ||
+      juso?.bdNm ||
+      ""
+    );
+
+  let unverifiedHouseBuildingName =
+    false;
+
+  if (
+    isHouse &&
+    inputExtra
+  ) {
+    const extraCompact =
+      compact(inputExtra);
+
+    const officialCompact =
+      compact(officialName);
+
+    const officialMatched =
+      Boolean(
+        officialCompact &&
+        (
+          extraCompact.includes(
+            officialCompact
+          ) ||
+          officialCompact.includes(
+            extraCompact
+          )
+        )
+      );
+
+    if (!officialMatched) {
+      unverifiedHouseBuildingName =
+        true;
+
+      issues.push(
+        "단독·다가구주택에 공식 건물명으로 확인되지 않은 건물명 또는 문자열이 입력됐습니다."
+      );
+
+      riskScore += 30;
+    }
+  }
+
+  if (
+    detail?.confidence === "낮음"
+  ) {
+    issues.push(
+      "상세주소 문자열 파싱 신뢰도가 낮습니다."
+    );
+
+    riskScore += 20;
+  } else if (
+    detail?.confidence === "중간"
+  ) {
+    riskScore += 10;
+  }
+
+  riskScore =
+    Math.min(
+      riskScore,
+      100
+    );
+
+  let status = "정상";
+
+  if (riskScore >= 80) {
+    status = "우선 확인";
+  } else if (
+    riskScore >= 50
+  ) {
+    status = "오류 의심";
+  } else if (
+    riskScore >= 20
+  ) {
+    status = "확인 필요";
+  }
+
+  return {
+    status,
+    riskScore,
+
+    issues,
+
+    issueText:
+      issues.join(" | "),
+
+    groundFloorExceeded,
+    undergroundFloorExceeded,
+
+    dongExists,
+    hoExists,
+
+    unverifiedHouseBuildingName,
+
+    targetFloor,
+
+    groundFloorCount:
+      groundFloors,
+
+    undergroundFloorCount:
+      undergroundFloors,
+
+    availableDongNames:
+      normalizedDongNames,
+
+    availableHoNames:
+      normalizedHoNames
   };
 }
 
@@ -2415,5 +2617,6 @@ export {
   parseDetailText,
   extractDetailByConfirmedAddress,
   normalizeDongName,
-  normalizeHoName
+  normalizeHoName,
+  validateAddressStructure
 };
