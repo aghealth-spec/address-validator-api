@@ -3494,11 +3494,11 @@ async function analyzeOneBuilding(
               Math.max(
                 Number(
                   options.exposMaxPages ||
-                  20
+                  50
                 ),
                 1
               ),
-              50
+              100
             )
         }
       );
