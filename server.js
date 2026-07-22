@@ -1320,16 +1320,28 @@ async function searchExposWithFallback(
         100
       );
   
-    const maxPages =
-      Math.min(
-        Math.max(
-          Number(
-            options.exposMaxPages || 20
-          ),
-          1
-        ),
-        50
+    const requestedMaxPages =
+      Number(
+        options.exposMaxPages ?? 0
       );
+    
+    /*
+     * 0이면 공공데이터 totalCount 기준
+     * 실제 마지막 페이지까지 조회
+     */
+    const maxPages =
+      Number.isFinite(
+        requestedMaxPages
+      ) &&
+      requestedMaxPages > 0
+        ? Math.min(
+            Math.max(
+              requestedMaxPages,
+              1
+            ),
+            1000
+          )
+        : Number.MAX_SAFE_INTEGER;
   
     const targetDong =
       normalizeDongName(
@@ -3530,15 +3542,9 @@ async function analyzeOneBuilding(
             ),
     
           exposMaxPages:
-            Math.min(
-              Math.max(
-                Number(
-                  options.exposMaxPages ||
-                  50
-                ),
-                1
-              ),
-              100
+            Number(
+              options.exposMaxPages ??
+              20
             )
         }
       );
@@ -4111,17 +4117,18 @@ app.post(
               ),
 
             exposMaxPages:
-              Math.min(
-                Math.max(
-                  Number(
-                    req.body
-                      ?.exposMaxPages ||
-                    3
-                  ),
-                  1
-                ),
-                5
-              )
+              req.body?.fullExposScan === true
+                ? 0
+                : Math.min(
+                    Math.max(
+                      Number(
+                        req.body?.exposMaxPages ??
+                        20
+                      ),
+                      1
+                    ),
+                    100
+                  )
           }
         );
 
@@ -4233,16 +4240,9 @@ app.post(
                   ),
 
                 exposMaxPages:
-                  Math.min(
-                    Math.max(
-                      Number(
-                        req.body
-                          ?.exposMaxPages ||
-                        3
-                      ),
-                      1
-                    ),
-                    5
+                  Number(
+                    options.exposMaxPages ??
+                    20
                   )
               }
             );
