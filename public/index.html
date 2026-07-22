@@ -2,7 +2,11 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
   <title>엑셀 주소 분석</title>
 
   <style>
@@ -50,6 +54,108 @@
       line-height: 1.6;
       font-size: 14px;
     }
+
+    /* =====================================================
+     * 결과 엑셀 노출 방식
+     * =================================================== */
+
+    .output-mode-box {
+      margin-bottom: 20px;
+      padding: 18px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fff;
+      text-align: left;
+    }
+
+    .output-mode-title {
+      display: block;
+      margin-bottom: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .output-mode-list {
+      display: flex;
+      gap: 10px;
+    }
+
+    .output-mode-item {
+      position: relative;
+      flex: 1;
+      cursor: pointer;
+    }
+
+    .output-mode-item input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .output-mode-content {
+      display: block;
+      min-height: 82px;
+      padding: 15px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #fff;
+      transition:
+        border-color .2s ease,
+        background-color .2s ease,
+        box-shadow .2s ease;
+    }
+
+    .output-mode-name {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .output-mode-desc {
+      display: block;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #6b7280;
+    }
+
+    .output-mode-item input:checked +
+    .output-mode-content {
+      border-color: #111827;
+      background: #f8fafc;
+      box-shadow: 0 0 0 1px #111827;
+    }
+
+    .output-mode-item input:focus-visible +
+    .output-mode-content {
+      outline: 3px solid rgba(17, 24, 39, .18);
+      outline-offset: 2px;
+    }
+
+    .output-column-notice {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #6b7280;
+    }
+
+    .output-column-notice strong {
+      color: #374151;
+    }
+
+    /* =====================================================
+     * 파일 업로드
+     * =================================================== */
 
     .upload-box {
       border: 2px dashed #cbd5e1;
@@ -175,6 +281,14 @@
         padding: 22px 18px;
       }
 
+      .output-mode-list {
+        flex-direction: column;
+      }
+
+      .output-mode-content {
+        min-height: auto;
+      }
+
       h1 {
         font-size: 24px;
       }
@@ -194,11 +308,71 @@
 
       <div class="notice">
         <strong>필수 헤더:</strong> 주소<br>
-        <strong>선택 헤더:</strong> 우편번호<br>
+        <strong>선택 헤더:</strong> 우편번호, 주문번호<br>
         지원 파일: .xlsx, .xls / 첫 번째 시트를 처리합니다.
       </div>
 
       <form id="uploadForm">
+
+        <!-- 결과 엑셀 노출 방식 -->
+        <div class="output-mode-box">
+          <strong class="output-mode-title">
+            결과 엑셀 노출 방식
+          </strong>
+
+          <div class="output-mode-list">
+
+            <!-- 전체노출 -->
+            <label class="output-mode-item">
+              <input
+                type="radio"
+                name="outputMode"
+                value="all"
+              >
+
+              <span class="output-mode-content">
+                <span class="output-mode-name">
+                  전체노출
+                </span>
+
+                <span class="output-mode-desc">
+                  주소 분석 및 건축물대장 관련
+                  전체 결과 항목을 출력합니다.
+                </span>
+              </span>
+            </label>
+
+            <!-- 일부노출: 기본 선택 -->
+            <label class="output-mode-item">
+              <input
+                type="radio"
+                name="outputMode"
+                value="partial"
+                checked
+              >
+
+              <span class="output-mode-content">
+                <span class="output-mode-name">
+                  일부노출
+                </span>
+
+                <span class="output-mode-desc">
+                  확인에 필요한 주요 결과 항목만
+                  간략하게 출력합니다.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <div class="output-column-notice">
+            <strong>일부노출 항목:</strong><br>
+            순번, 주문번호, 입력우편번호, 입력주소,
+            주소처리성공, 전체층수, 지상층수, 지하층수,
+            건축물대장조회, 동호검증사유, 상세주소상태,
+            주소분석실패사유
+          </div>
+        </div>
+
         <div class="upload-box">
           <input
             id="excelFile"
@@ -227,7 +401,7 @@
               >
                 파일 업로드 준비 중...
               </span>
-            
+
               <strong
                 id="progressCount"
                 class="progress-percent"
@@ -295,6 +469,11 @@
     const progressBar =
       document.getElementById(
         "progressBar"
+      );
+
+    const outputModeInputs =
+      document.querySelectorAll(
+        'input[name="outputMode"]'
       );
 
     let pollingStopped =
@@ -374,9 +553,7 @@
         "";
     }
 
-    function wait(
-      milliseconds
-    ) {
+    function wait(milliseconds) {
       return new Promise(
         function (resolve) {
           setTimeout(
@@ -387,9 +564,7 @@
       );
     }
 
-    function validateExcelFile(
-      file
-    ) {
+    function validateExcelFile(file) {
       const allowedExtensions = [
         ".xlsx",
         ".xls"
@@ -403,6 +578,42 @@
           return lowerFileName.endsWith(
             extension
           );
+        }
+      );
+    }
+
+    /*
+     * 선택된 결과 노출 방식을 가져옵니다.
+     *
+     * 선택값을 찾지 못할 경우에도
+     * 일부노출을 기본값으로 사용합니다.
+     */
+    function getSelectedOutputMode() {
+      const selectedInput =
+        document.querySelector(
+          'input[name="outputMode"]:checked'
+        );
+
+      if (!selectedInput) {
+        return "partial";
+      }
+
+      return selectedInput.value === "all"
+        ? "all"
+        : "partial";
+    }
+
+    function setFormDisabled(disabled) {
+      button.disabled =
+        disabled;
+
+      fileInput.disabled =
+        disabled;
+
+      outputModeInputs.forEach(
+        function (input) {
+          input.disabled =
+            disabled;
         }
       );
     }
@@ -619,9 +830,7 @@
     form.addEventListener(
       "submit",
 
-      async function (
-        event
-      ) {
+      async function (event) {
         event.preventDefault();
 
         const file =
@@ -651,6 +860,12 @@
           return;
         }
 
+        /*
+         * 기본 선택값은 partial입니다.
+         */
+        const outputMode =
+          getSelectedOutputMode();
+
         const formData =
           new FormData();
 
@@ -659,19 +874,31 @@
           file
         );
 
-        button.disabled =
-          true;
+        /*
+         * 서버의 detail-address-extractor.js로
+         * all 또는 partial 값을 전달합니다.
+         */
+        formData.append(
+          "outputMode",
+          outputMode
+        );
 
-        fileInput.disabled =
-          true;
+        setFormDisabled(
+          true
+        );
 
         resetProgress();
+
+        const outputModeText =
+          outputMode === "all"
+            ? "전체노출"
+            : "일부노출";
 
         setProgress(
           0,
           0,
           0,
-          "엑셀 파일을 업로드하고 있습니다."
+          `엑셀 파일을 업로드하고 있습니다. · ${outputModeText}`
         );
 
         try {
@@ -726,7 +953,7 @@
             data.current || 0,
             data.total || 0,
             data.percent || 0,
-            "주소 분석 작업을 준비하고 있습니다."
+            `주소 분석 작업을 준비하고 있습니다. · ${outputModeText}`
           );
 
           await pollProgress(
@@ -752,16 +979,13 @@
               ? error.message
               : "주소 분석에 실패했습니다.";
         } finally {
-          button.disabled =
-            false;
-
-          fileInput.disabled =
-            false;
+          setFormDisabled(
+            false
+          );
         }
       }
     );
   })();
-</script>
- 
+  </script>
 </body>
 </html>
