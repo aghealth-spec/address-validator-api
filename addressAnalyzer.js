@@ -1404,7 +1404,7 @@ function hasDetailPattern(value) {
     /[A-Za-z가-힣]{0,4}\d+\s*호/u.test(
       value
     ) ||
-    /^\s*\d{1,4}\s*[-/]\s*\d{1,5}\s*$/u.test(
+    /(?:^|[\s,])\d{1,4}\s*[-/]\s*\d{1,5}(?:\s*호)?(?:\s|,|$)/u.test(
       value
     )
   );
@@ -1583,6 +1583,13 @@ function parseDetailText(value) {
 
   /*
    * 501-904 / 608/603
+   *
+   * 앞에 단지명이나 건물명이 붙어 있어도
+   * 숫자-숫자 부분을 동·호로 변환합니다.
+   *
+   * 예:
+   * 아델리움 102-1603
+   * 신동아4단지 114-913
    */
   if (
     !dong &&
@@ -1590,7 +1597,7 @@ function parseDetailText(value) {
   ) {
     const hyphenMatch =
       text.match(
-        /^\s*(\d{1,4})\s*[-/]\s*(\d{1,5})\s*$/u
+        /(?:^|[\s,])(\d{1,4})\s*[-/]\s*(\d{1,5})(?:\s*호)?(?=\s|,|$)/u
       );
 
     if (hyphenMatch) {
@@ -1600,16 +1607,24 @@ function parseDetailText(value) {
       ho =
         `${hyphenMatch[2]}호`;
 
-      text = "";
+      text =
+        text.replace(
+          hyphenMatch[0],
+          " "
+        );
 
       type =
         "동-호 축약형";
 
+      /*
+       * 동·호가 명확하게 변환된 경우
+       * 남은 문자열 유무에 따라 최종 상태를 다시 판단합니다.
+       */
       status =
-        "형식 변환";
+        "정상";
 
       confidence =
-        "중간";
+        "높음";
     }
   }
 
@@ -1734,15 +1749,15 @@ function parseDetailText(value) {
       type = "동·호";
     }
 
-    if (
-      status ===
-      "자동판정 불가"
-    ) {
-      status =
-        extra
-          ? "보정 필요"
-          : "정상";
-    }
+    /*
+     * 축약형까지 포함해 동·호가 추출됐더라도
+     * 건물명, 상호명 등 나머지 문자열이 남으면
+     * 보정 필요로 구분합니다.
+     */
+    status =
+      extra
+        ? "보정 필요"
+        : "정상";
 
     confidence =
       extra
