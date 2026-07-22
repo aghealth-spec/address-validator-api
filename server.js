@@ -4239,11 +4239,17 @@ app.post(
                     100
                   ),
 
-                exposMaxPages:
-                  Number(
-                    options.exposMaxPages ??
-                    20
-                  )
+              exposMaxPages:
+                Math.min(
+                  Math.max(
+                    Number(
+                      req.body?.exposMaxPages ??
+                      20
+                    ),
+                    1
+                  ),
+                  100
+                )
               }
             );
 
