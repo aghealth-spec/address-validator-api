@@ -1303,333 +1303,437 @@ async function searchExposWithFallback(
  * 전유부 폴백 조회
  * ======================================================= */
 
-async function searchTargetExposWithPaging(
-  juso,
-  preferredParams,
-  detail,
-  options = {}
-) {
-  const numOfRows =
-    Math.min(
-      Math.max(
-        Number(
-          options.exposRowsPerPage || 100
-        ),
-        10
-      ),
-      100
-    );
-
-  const maxPages =
-    Math.min(
-      Math.max(
-        Number(
-          options.exposMaxPages || 20
-        ),
-        1
-      ),
-      50
-    );
-
-  const targetDong =
-    normalizeDongName(
-      detail?.dongRaw ||
-      detail?.dong ||
-      ""
-    );
-
-  const targetHo =
-    normalizeHoName(
-      detail?.hoRaw ||
-      detail?.ho ||
-      ""
-    );
-
-  const candidates = [];
-
-  if (
-    preferredParams &&
-    preferredParams.valid !== false
+  async function searchTargetExposWithPaging(
+    juso,
+    preferredParams,
+    detail,
+    options = {}
   ) {
-    candidates.push({
-      ...preferredParams,
-      lookupSource:
-        preferredParams.lookupSource ||
-        "TITLE_MATCHED_PARAMS"
-    });
-  }
-
-  for (
-    const params
-    of buildBuildingParamCandidates(juso)
-  ) {
-    if (
-      params.valid === false
-    ) {
-      continue;
-    }
-
-    const duplicate =
-      candidates.some(
-        (item) =>
-          item.sigunguCd === params.sigunguCd &&
-          item.bjdongCd === params.bjdongCd &&
-          item.platGbCd === params.platGbCd &&
-          item.bun === params.bun &&
-          item.ji === params.ji
+    const numOfRows =
+      Math.min(
+        Math.max(
+          Number(
+            options.exposRowsPerPage || 100
+          ),
+          10
+        ),
+        100
       );
-
-    if (!duplicate) {
-      candidates.push(params);
-    }
-  }
-
-  const attempts = [];
-
-  for (
-    const params
-    of candidates
-  ) {
-    let pageNo = 1;
-    let totalCount = 0;
-    let loadedCount = 0;
-    const loadedItems = [];
-
-    while (
-      pageNo <= maxPages
+  
+    const maxPages =
+      Math.min(
+        Math.max(
+          Number(
+            options.exposMaxPages || 20
+          ),
+          1
+        ),
+        50
+      );
+  
+    const targetDong =
+      normalizeDongName(
+        detail?.dongRaw ||
+        detail?.dong ||
+        ""
+      );
+  
+    const targetHo =
+      normalizeHoName(
+        detail?.hoRaw ||
+        detail?.ho ||
+        ""
+      );
+  
+    const candidates = [];
+  
+    if (
+      preferredParams &&
+      preferredParams.valid !== false
     ) {
-      try {
-        const page =
-          await fetchBuildingHubPage(
-            "getBrExposInfo",
-            params,
-            pageNo,
-            numOfRows
-          );
-
-        totalCount =
-          page.totalCount;
-
-        loadedCount +=
-          page.items.length;
-
-        const mapped =
-          page.items.map(
-            mapExposCandidate
-          );
-
-        loadedItems.push(
-          ...mapped
+      candidates.push({
+        ...preferredParams,
+  
+        lookupSource:
+          preferredParams.lookupSource ||
+          "TITLE_MATCHED_PARAMS"
+      });
+    }
+  
+    for (
+      const params
+      of buildBuildingParamCandidates(
+        juso
+      )
+    ) {
+      if (
+        params.valid === false
+      ) {
+        continue;
+      }
+  
+      const duplicate =
+        candidates.some(
+          (item) =>
+            item.sigunguCd ===
+              params.sigunguCd &&
+            item.bjdongCd ===
+              params.bjdongCd &&
+            item.platGbCd ===
+              params.platGbCd &&
+            item.bun ===
+              params.bun &&
+            item.ji ===
+              params.ji
         );
-
-        const exactMatch =
-          mapped.find(
-            (candidate) => {
-              const dongMatched =
-                !targetDong ||
-                candidate.normalizedDong ===
-                  targetDong;
-
-              const hoMatched =
-                !targetHo ||
-                candidate.normalizedHo ===
-                  targetHo;
-
-              return (
-                dongMatched &&
-                hoMatched &&
-                (
-                  targetDong ||
-                  targetHo
-                )
-              );
-            }
-          );
-
-        attempts.push({
-          operation:
-            "getBrExposInfo",
-
-          lookupSource:
-            params.lookupSource,
-
-          pageNo,
-
-          params,
-
-          success:
-            true,
-
-          totalCount,
-
-          loadedCount
-        });
-
-        if (exactMatch) {
-          return {
-            matched:
-              true,
-
-            exactMatch,
-
-            lookupSource:
-              params.lookupSource,
-
-            matchedParams:
-              params,
-
-            attempts,
-
-            totalCount,
-
-            loadedCount,
-
-            pageCount:
-              pageNo,
-
-            truncated:
-              false,
-
-            items:
-              loadedItems
-          };
-        }
-
-        const totalPages =
-          Math.max(
-            1,
-            Math.ceil(
-              totalCount /
-              numOfRows
-            )
-          );
-
-        if (
-          pageNo >= totalPages
-        ) {
-          return {
-            matched:
-              false,
-
-            exactMatch:
-              null,
-
-            lookupSource:
-              params.lookupSource,
-
-            matchedParams:
-              params,
-
-            attempts,
-
-            totalCount,
-
-            loadedCount,
-
-            pageCount:
-              pageNo,
-
-            truncated:
-              false,
-
-            items:
-              loadedItems
-          };
-        }
-
-        pageNo += 1;
-
-        await sleep(30);
-      } catch (error) {
-        attempts.push({
-          operation:
-            "getBrExposInfo",
-
-          lookupSource:
-            params.lookupSource,
-
-          pageNo,
-
-          params,
-
-          success:
-            false,
-
-          error:
-            error instanceof Error
-              ? error.message
-              : String(error)
-        });
-
-        break;
+  
+      if (!duplicate) {
+        candidates.push(params);
       }
     }
-
-    if (
-      pageNo > maxPages
+  
+    const attempts = [];
+  
+    let bestResult = null;
+    let hadTruncatedResult = false;
+    let lastResultCode = "";
+    let lastResultMessage = "";
+  
+    for (
+      const params
+      of candidates
     ) {
-      return {
+      let pageNo = 1;
+      let totalCount = 0;
+      let loadedCount = 0;
+      let resultCode = "";
+      let resultMessage = "";
+      let candidateTruncated = false;
+      let candidateFailed = false;
+  
+      const loadedItems = [];
+  
+      while (
+        pageNo <= maxPages
+      ) {
+        try {
+          const page =
+            await fetchBuildingHubPage(
+              "getBrExposInfo",
+              params,
+              pageNo,
+              numOfRows
+            );
+  
+          resultCode =
+            page.resultCode;
+  
+          resultMessage =
+            page.resultMessage;
+  
+          lastResultCode =
+            resultCode;
+  
+          lastResultMessage =
+            resultMessage;
+  
+          totalCount =
+            page.totalCount;
+  
+          loadedCount +=
+            page.items.length;
+  
+          /*
+           * analyzeOneBuilding()에서 다시 mapExposCandidate()를
+           * 실행하므로 여기에는 원본 데이터를 저장합니다.
+           */
+          loadedItems.push(
+            ...page.items
+          );
+  
+          const mapped =
+            page.items.map(
+              mapExposCandidate
+            );
+  
+          const exactMatch =
+            mapped.find(
+              (candidate) => {
+                const dongMatched =
+                  !targetDong ||
+                  candidate.normalizedDong ===
+                    targetDong;
+  
+                const hoMatched =
+                  !targetHo ||
+                  candidate.normalizedHo ===
+                    targetHo;
+  
+                return (
+                  dongMatched &&
+                  hoMatched &&
+                  (
+                    targetDong ||
+                    targetHo
+                  )
+                );
+              }
+            );
+  
+          attempts.push({
+            operation:
+              "getBrExposInfo",
+  
+            lookupSource:
+              params.lookupSource,
+  
+            pageNo,
+            params,
+  
+            success:
+              true,
+  
+            totalCount,
+            loadedCount
+          });
+  
+          /*
+           * 목표 동·호를 찾으면 다음 페이지를 조회하지 않고
+           * 즉시 결과를 반환합니다.
+           */
+          if (exactMatch) {
+            return {
+              matched:
+                true,
+  
+              operation:
+                "getBrExposInfo",
+  
+              exactMatch,
+  
+              lookupSource:
+                params.lookupSource,
+  
+              matchedParams:
+                params,
+  
+              attempts,
+  
+              resultCode,
+              resultMessage,
+  
+              totalCount,
+              loadedCount,
+  
+              pageCount:
+                pageNo,
+  
+              truncated:
+                false,
+  
+              items:
+                loadedItems
+            };
+          }
+  
+          const totalPages =
+            Math.max(
+              1,
+              Math.ceil(
+                totalCount /
+                numOfRows
+              )
+            );
+  
+          /*
+           * 실제 마지막 페이지까지 조회한 경우
+           */
+          if (
+            pageNo >= totalPages
+          ) {
+            break;
+          }
+  
+          /*
+           * 실제 페이지는 더 있지만 설정된 최대 페이지에
+           * 도달한 경우 미완료로 표시합니다.
+           */
+          if (
+            pageNo >= maxPages
+          ) {
+            candidateTruncated =
+              true;
+  
+            hadTruncatedResult =
+              true;
+  
+            break;
+          }
+  
+          pageNo += 1;
+  
+          await sleep(30);
+        } catch (error) {
+          candidateFailed =
+            true;
+  
+          /*
+           * 일부 페이지를 받은 후 오류가 발생했다면
+           * 전체 조회 완료가 아니므로 truncated 처리합니다.
+           */
+          candidateTruncated =
+            loadedCount > 0;
+  
+          if (candidateTruncated) {
+            hadTruncatedResult =
+              true;
+          }
+  
+          attempts.push({
+            operation:
+              "getBrExposInfo",
+  
+            lookupSource:
+              params.lookupSource,
+  
+            pageNo,
+            params,
+  
+            success:
+              false,
+  
+            totalCount,
+            loadedCount,
+  
+            error:
+              error instanceof Error
+                ? error.message
+                : String(error)
+          });
+  
+          break;
+        }
+      }
+  
+      const candidateResult = {
         matched:
           false,
-
+  
+        operation:
+          "getBrExposInfo",
+  
         exactMatch:
           null,
-
+  
         lookupSource:
           params.lookupSource,
-
+  
         matchedParams:
           params,
-
-        attempts,
-
+  
+        resultCode,
+        resultMessage,
+  
         totalCount,
-
         loadedCount,
-
+  
         pageCount:
-          maxPages,
-
+          Math.min(
+            pageNo,
+            maxPages
+          ),
+  
         truncated:
-          true,
-
+          candidateTruncated,
+  
+        failed:
+          candidateFailed,
+  
         items:
           loadedItems
       };
+  
+      /*
+       * 목표 동·호를 찾지 못했을 때 가장 많은 전유부 데이터를
+       * 조회한 결과를 최종 비교용으로 보관합니다.
+       */
+      if (
+        !bestResult ||
+        candidateResult.loadedCount >
+          bestResult.loadedCount ||
+        (
+          candidateResult.loadedCount ===
+            bestResult.loadedCount &&
+          bestResult.truncated === true &&
+          candidateResult.truncated === false
+        )
+      ) {
+        bestResult =
+          candidateResult;
+      }
+  
+      /*
+       * 현재 후보에서 못 찾더라도 바로 반환하지 않고,
+       * 정확지번 다음의 대표지번 폴백 후보까지 조회합니다.
+       */
     }
+  
+    if (bestResult) {
+      return {
+        ...bestResult,
+  
+        attempts,
+  
+        /*
+         * 어떤 후보에서든 조회가 중간에 끝났다면
+         * 실제 미존재로 확정하지 않습니다.
+         */
+        truncated:
+          hadTruncatedResult ||
+          bestResult.truncated
+      };
+    }
+  
+    return {
+      matched:
+        false,
+  
+      operation:
+        "getBrExposInfo",
+  
+      exactMatch:
+        null,
+  
+      lookupSource:
+        "ALL_LOOKUPS_FAILED",
+  
+      matchedParams:
+        null,
+  
+      attempts,
+  
+      resultCode:
+        lastResultCode,
+  
+      resultMessage:
+        lastResultMessage,
+  
+      totalCount:
+        0,
+  
+      loadedCount:
+        0,
+  
+      pageCount:
+        0,
+  
+      truncated:
+        false,
+  
+      items:
+        []
+    };
   }
-
-  return {
-    matched:
-      false,
-
-    exactMatch:
-      null,
-
-    lookupSource:
-      "ALL_LOOKUPS_FAILED",
-
-    matchedParams:
-      null,
-
-    attempts,
-
-    totalCount:
-      0,
-
-    loadedCount:
-      0,
-
-    pageCount:
-      0,
-
-    truncated:
-      false,
-
-    items:
-      []
-  };
-}
 
 /* =========================================================
  * 표제부 데이터 매핑
@@ -2957,6 +3061,17 @@ function buildVerification(
       reason =
         exposResult.reason;
     }
+
+  } else if (
+    exposResult.status ===
+    "EXPOS_SEARCH_INCOMPLETE"
+  ) {
+    status =
+      "EXPOS_SEARCH_INCOMPLETE";
+  
+    reason =
+      exposResult.reason;
+    
   } else if (
     [
       "DONG_VERIFIED_UNIT_NOT_FOUND",
@@ -3432,11 +3547,32 @@ async function analyzeOneBuilding(
       mapExposCandidate
     );
 
-  const exposMatch =
+  let exposMatch =
     evaluateExposMatch(
       detail,
       exposCandidates
     );
+  
+  if (
+    exposRawResult.truncated === true &&
+    exposMatch.exactMatched !== true
+  ) {
+    exposMatch = {
+      ...exposMatch,
+  
+      status:
+        "EXPOS_SEARCH_INCOMPLETE",
+  
+      reason:
+        "전유부 조회가 페이지 제한 또는 중간 오류로 종료되어 입력 동·호를 끝까지 확인하지 못했습니다.",
+  
+      unitMatched:
+        false,
+  
+      exactMatched:
+        false
+    };
+  }
 
   const exposResult = {
     ...exposMatch,
