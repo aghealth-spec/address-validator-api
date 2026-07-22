@@ -1456,19 +1456,19 @@ async function searchExposWithFallback(
               mapExposCandidate
             );
   
-          const exactMatch =
-            mapped.find(
+          const matchedIndex =
+            mapped.findIndex(
               (candidate) => {
                 const dongMatched =
                   !targetDong ||
                   candidate.normalizedDong ===
                     targetDong;
-  
+          
                 const hoMatched =
                   !targetHo ||
                   candidate.normalizedHo ===
                     targetHo;
-  
+          
                 return (
                   dongMatched &&
                   hoMatched &&
@@ -1479,6 +1479,11 @@ async function searchExposWithFallback(
                 );
               }
             );
+          
+          const exactMatch =
+            matchedIndex >= 0
+              ? mapped[matchedIndex]
+              : null;
   
           attempts.push({
             operation:
@@ -1501,40 +1506,57 @@ async function searchExposWithFallback(
            * 목표 동·호를 찾으면 다음 페이지를 조회하지 않고
            * 즉시 결과를 반환합니다.
            */
-          if (exactMatch) {
-            return {
-              matched:
-                true,
-  
-              operation:
-                "getBrExposInfo",
-  
-              exactMatch,
-  
-              lookupSource:
-                params.lookupSource,
-  
-              matchedParams:
-                params,
-  
-              attempts,
-  
-              resultCode,
-              resultMessage,
-  
-              totalCount,
-              loadedCount,
-  
-              pageCount:
-                pageNo,
-  
-              truncated:
-                false,
-  
-              items:
-                loadedItems
-            };
-          }
+            if (exactMatch) {
+              return {
+                matched:
+                  true,
+            
+                operation:
+                  "getBrExposInfo",
+            
+                exactMatch,
+            
+                /*
+                 * 찾은 페이지와 API 반환 순번
+                 */
+                matchedPageNo:
+                  pageNo,
+            
+                matchedPageItemNo:
+                  matchedIndex + 1,
+            
+                matchedItemPosition:
+                  (
+                    (pageNo - 1) *
+                    numOfRows
+                  ) +
+                  matchedIndex +
+                  1,
+            
+                lookupSource:
+                  params.lookupSource,
+            
+                matchedParams:
+                  params,
+            
+                attempts,
+            
+                resultCode,
+                resultMessage,
+            
+                totalCount,
+                loadedCount,
+            
+                pageCount:
+                  pageNo,
+            
+                truncated:
+                  false,
+            
+                items:
+                  loadedItems
+              };
+            }
   
           const totalPages =
             Math.max(
@@ -1618,37 +1640,46 @@ async function searchExposWithFallback(
       const candidateResult = {
         matched:
           false,
-  
+      
         operation:
           "getBrExposInfo",
-  
+      
         exactMatch:
           null,
-  
+      
+        matchedPageNo:
+          null,
+      
+        matchedPageItemNo:
+          null,
+      
+        matchedItemPosition:
+          null,
+      
         lookupSource:
           params.lookupSource,
-  
+      
         matchedParams:
           params,
-  
+      
         resultCode,
         resultMessage,
-  
+      
         totalCount,
         loadedCount,
-  
+      
         pageCount:
           Math.min(
             pageNo,
             maxPages
           ),
-  
+      
         truncated:
           candidateTruncated,
-  
+      
         failed:
           candidateFailed,
-  
+      
         items:
           loadedItems
       };
@@ -1697,39 +1728,48 @@ async function searchExposWithFallback(
     return {
       matched:
         false,
-  
+    
       operation:
         "getBrExposInfo",
-  
+    
       exactMatch:
         null,
-  
+    
+      matchedPageNo:
+        null,
+    
+      matchedPageItemNo:
+        null,
+    
+      matchedItemPosition:
+        null,
+    
       lookupSource:
         "ALL_LOOKUPS_FAILED",
-  
+    
       matchedParams:
         null,
-  
+    
       attempts,
-  
+    
       resultCode:
         lastResultCode,
-  
+    
       resultMessage:
         lastResultMessage,
-  
+    
       totalCount:
         0,
-  
+    
       loadedCount:
         0,
-  
+    
       pageCount:
         0,
-  
+    
       truncated:
         false,
-  
+    
       items:
         []
     };
@@ -3576,31 +3616,43 @@ async function analyzeOneBuilding(
 
   const exposResult = {
     ...exposMatch,
-
+  
     lookupOperation:
       exposRawResult.operation,
-
+  
     lookupSource:
       exposRawResult.lookupSource,
-
+  
     lookupParams:
       exposRawResult.matchedParams,
-
+  
+    matchedPageNo:
+      exposRawResult.matchedPageNo ??
+      null,
+  
+    matchedPageItemNo:
+      exposRawResult.matchedPageItemNo ??
+      null,
+  
+    matchedItemPosition:
+      exposRawResult.matchedItemPosition ??
+      null,
+  
     lookupAttempts:
       exposRawResult.attempts,
-
+  
     totalCount:
       exposRawResult.totalCount,
-
+  
     loadedCount:
       exposRawResult.loadedCount,
-
+  
     pageCount:
       exposRawResult.pageCount,
-
+  
     truncated:
       exposRawResult.truncated,
-
+  
     candidates:
       exposCandidates
         .slice(
@@ -3612,7 +3664,7 @@ async function analyzeOneBuilding(
         .map(
           (candidate) => ({
             ...candidate,
-
+  
             raw:
               options.includeRaw === true
                 ? candidate.raw
