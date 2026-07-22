@@ -4,6 +4,10 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
+import {
+  validateAddressStructure
+} from "./addressAnalyzer.js";
+
 dotenv.config();
 
 const app = express();
@@ -800,7 +804,7 @@ async function fetchBuildingHubPage(
       ""
     );
 
-  if (
+      if (
     resultCode &&
     ![
       "00",
@@ -1615,7 +1619,7 @@ function evaluateExposMatch(
     }
   }
 
-  let status =
+    let status =
     "NOT_CHECKED";
 
   let reason =
@@ -2332,8 +2336,7 @@ function evaluateSingleTitleFloor(
     "UNDERGROUND"
   ) {
     const maximumFloor =
-      title
-        .undergroundFloorCount;
+      title.undergroundFloorCount;
 
     if (
       !Number.isFinite(
@@ -2501,8 +2504,7 @@ function evaluateCandidateFloorRanges(
           title.groundFloorCount,
 
         undergroundFloorCount:
-          title
-            .undergroundFloorCount,
+          title.undergroundFloorCount,
 
         ...evaluateSingleTitleFloor(
           title,
@@ -2514,8 +2516,7 @@ function evaluateCandidateFloorRanges(
   const comparable =
     results.filter(
       (result) =>
-        result
-          .floorWithinRange !==
+        result.floorWithinRange !==
         null
     );
 
@@ -2536,8 +2537,7 @@ function evaluateCandidateFloorRanges(
       comparable.length > 0
         ? comparable.some(
             (result) =>
-              result
-                .floorWithinRange ===
+              result.floorWithinRange ===
               true
           )
         : null,
@@ -2546,8 +2546,7 @@ function evaluateCandidateFloorRanges(
       comparable.length > 0
         ? comparable.every(
             (result) =>
-              result
-                .floorWithinRange ===
+              result.floorWithinRange ===
               true
           )
         : null,
@@ -3015,14 +3014,14 @@ async function analyzeOneBuilding(
       )
   };
 
-  const shouldSearchExpos =
+    const shouldSearchExpos =
     Boolean(
       detail.targetDong ||
       detail.targetHo
     );
-  
+
   let exposRawResult;
-  
+
   if (shouldSearchExpos) {
     exposRawResult =
       await searchExposWithFallback(
@@ -3040,7 +3039,7 @@ async function analyzeOneBuilding(
               ),
               100
             ),
-  
+
           exposMaxPages:
             Math.min(
               Math.max(
@@ -3058,42 +3057,42 @@ async function analyzeOneBuilding(
     exposRawResult = {
       matched:
         false,
-  
+
       operation:
         "getBrExposInfo",
-  
+
       lookupSource:
         "SKIPPED_NO_DONG_OR_UNIT",
-  
+
       matchedParams:
         null,
-  
+
       attempts:
         [],
-  
+
       resultCode:
         "",
-  
+
       resultMessage:
         "",
-  
+
       totalCount:
         0,
-  
+
       loadedCount:
         0,
-  
+
       pageCount:
         0,
-  
+
       truncated:
         false,
-  
+
       items:
         []
     };
   }
-  
+
   const exposCandidates =
     exposRawResult.items.map(
       mapExposCandidate
@@ -3242,6 +3241,48 @@ async function analyzeOneBuilding(
       totalFloorText
     );
 
+  /* =====================================================
+   * 주소 구조 위험도 검증
+   * =================================================== */
+
+  const buildingRegisterDongNames =
+    titleCandidates
+      .map(
+        (candidate) =>
+          candidate.dongName
+      )
+      .filter(Boolean);
+
+  const exclusiveUnitNames =
+    exposCandidates
+      .map(
+        (candidate) =>
+          candidate.hoName
+      )
+      .filter(Boolean);
+
+  const addressValidation =
+    validateAddressStructure({
+      detail,
+      juso,
+
+      groundFloorCount,
+      undergroundFloorCount,
+
+      buildingRegisterDongNames,
+      exclusiveUnitNames,
+
+      mainPurposeName:
+        selectedTitle?.mainPurpose ||
+        selectedTitle?.otherPurpose ||
+        "",
+
+      officialBuildingName:
+        selectedTitle?.buildingName ||
+        juso.bdNm ||
+        ""
+    });
+
   return {
     ok:
       buildingFloorLookupOk,
@@ -3289,6 +3330,38 @@ async function analyzeOneBuilding(
 
     buildingValidationReason:
       verification.reason,
+
+    addressValidationStatus:
+      addressValidation.status,
+
+    addressRiskScore:
+      addressValidation.riskScore,
+
+    addressValidationReasons:
+      addressValidation.issueText,
+
+    groundFloorExceeded:
+      addressValidation.groundFloorExceeded,
+
+    undergroundFloorExceeded:
+      addressValidation.undergroundFloorExceeded,
+
+    dongExists:
+      addressValidation.dongExists,
+
+    hoExists:
+      addressValidation.hoExists,
+
+    unverifiedHouseBuildingName:
+      addressValidation.unverifiedHouseBuildingName,
+
+    availableDongNames:
+      addressValidation.availableDongNames,
+
+    availableHoNames:
+      addressValidation.availableHoNames,
+
+    addressValidation,
 
     juso,
     detail,
@@ -3502,31 +3575,31 @@ app.post(
               req.body?.includeAllExpos ===
               true,
 
-          exposRowsPerPage:
-            Math.min(
-              Math.max(
-                Number(
-                  req.body
-                    ?.exposRowsPerPage ||
-                  100
+            exposRowsPerPage:
+              Math.min(
+                Math.max(
+                  Number(
+                    req.body
+                      ?.exposRowsPerPage ||
+                    100
+                  ),
+                  10
                 ),
-                10
+                100
               ),
-              100
-            ),
-          
-          exposMaxPages:
-            Math.min(
-              Math.max(
-                Number(
-                  req.body
-                    ?.exposMaxPages ||
-                  3
+
+            exposMaxPages:
+              Math.min(
+                Math.max(
+                  Number(
+                    req.body
+                      ?.exposMaxPages ||
+                    3
+                  ),
+                  1
                 ),
-                1
-              ),
-              5
-            )
+                5
+              )
           }
         );
 
@@ -3636,7 +3709,7 @@ app.post(
                     ),
                     100
                   ),
-                
+
                 exposMaxPages:
                   Math.min(
                     Math.max(
