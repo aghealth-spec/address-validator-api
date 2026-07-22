@@ -28,6 +28,15 @@ const ALLOWED_ORIGIN = String(
   process.env.ALLOWED_ORIGIN || "*"
 ).trim();
 
+const FULL_EXPOS_SCAN =
+  String(
+    process.env.FULL_EXPOS_SCAN ||
+    "false"
+  )
+    .trim()
+    .toLowerCase() ===
+  "true";
+
 const BUILDING_API_BASE =
   "https://apis.data.go.kr/1613000/BldRgstHubService";
 
@@ -4116,19 +4125,20 @@ app.post(
                 100
               ),
 
-            exposMaxPages:
-              req.body?.fullExposScan === true
-                ? 0
-                : Math.min(
-                    Math.max(
-                      Number(
-                        req.body?.exposMaxPages ??
-                        20
-                      ),
-                      1
-                    ),
-                    100
-                  )
+        exposMaxPages:
+          FULL_EXPOS_SCAN === true ||
+          req.body?.fullExposScan === true
+            ? 0
+            : Math.min(
+                Math.max(
+                  Number(
+                    req.body?.exposMaxPages ??
+                    20
+                  ),
+                  1
+                ),
+                100
+              )
           }
         );
 
