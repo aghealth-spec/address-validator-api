@@ -58,9 +58,9 @@ const SERVER_API_SECRET = String(
 
 const SERVER_API_TIMEOUT = getSafeNumber(
   process.env.SERVER_API_TIMEOUT,
-  25000,
-  5000,
-  30000
+  120000,
+  10000,
+  180000
 );
 
 const SERVER_EXPOS_ROWS_PER_PAGE = getSafeNumber(
