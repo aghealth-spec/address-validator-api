@@ -491,7 +491,36 @@
 </head>
 
 <body>  
-  {% include "_menu.html" %}
+  <div id="commonMenu"></div>
+
+  <script>
+    fetch("/_menu.html")
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error(
+            "메뉴 파일을 불러오지 못했습니다."
+          );
+        }
+
+        return response.text();
+      })
+      .then(function (html) {
+        const commonMenu =
+          document.getElementById(
+            "commonMenu"
+          );
+
+        if (commonMenu) {
+          commonMenu.innerHTML =
+            html;
+        }
+      })
+      .catch(function (error) {
+        console.error(
+          error
+        );
+      });
+  </script>    
   
   <main class="wrap">
     <section class="card">
