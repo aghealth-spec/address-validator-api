@@ -1,1 +1,72 @@
+<style>
+.monitor-menu {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+    padding: 12px;
+    background: #f8f8f8;
+    border: 1px solid #e5e5e5;
+    border-radius: 10px;
+}
 
+.monitor-menu a {
+    display: inline-block;
+    padding: 9px 14px;
+    border: 1px solid #ddd;
+    border-radius: 999px;
+    background: #fff;
+    color: #333;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+        background-color .2s ease,
+        border-color .2s ease,
+        color .2s ease;
+}
+
+.monitor-menu a:hover {
+    border-color: #111827;
+    color: #111827;
+}
+
+.monitor-menu a.active {
+    border-color: #111827;
+    background: #111827;
+    color: #fff;
+}
+</style>
+<body>
+  <nav class="monitor-menu">
+    <a
+      href="https://determined-integrity-production-e27a.up.railway.app/"
+    >
+      네이버 쇼핑 가격 모니터링
+    </a>
+
+    <a
+      href="https://zonal-harmony-production-2367.up.railway.app/"
+    >
+      네이버 모바일 블로그탭 순위 모니터링
+    </a>
+
+    <a
+      href="https://spectacular-rebirth-production-b679.up.railway.app/"
+    >
+      쿠팡 검색순위 모니터링
+    </a>
+
+    <a
+      href="https://responsible-purpose-production-208e.up.railway.app/"
+    >
+      쿠팡 판매가 추세 모니터링
+    </a>
+
+    <a
+      href="https://believable-exploration-production-940e.up.railway.app/"
+      class="active"
+    >
+      주소 검증 분석
+    </a>
+  </nav>
